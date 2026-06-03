@@ -1,0 +1,60 @@
+name: clip_master
+description: "Offline video player and clip cutter - play device videos, mark favorite parts, cut and save them as independent clips."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # Video playback
+  video_player: ^2.9.2
+
+  # Pick video from device
+  file_picker: ^8.1.4
+
+  # Offline video processing (cutting) - fully on-device, no server
+  ffmpeg_kit_flutter_new: 4.2.1
+
+  # Local storage for clips library
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  path_provider: ^2.1.4
+  path: ^1.9.0
+
+  # Share clips
+  share_plus: ^10.1.2
+
+  # Save to device gallery
+  saver_gallery: ^4.0.1
+
+  # Permissions
+  permission_handler: ^11.3.1
+
+  # State management
+  provider: ^6.1.5+1
+
+  # Thumbnails
+  video_thumbnail: ^0.5.3
+
+  # UUID for clip ids
+  uuid: ^4.5.1
+
+  # Intl for formatting
+  intl: ^0.19.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icons/

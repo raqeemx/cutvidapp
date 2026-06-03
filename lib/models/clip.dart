@@ -1,0 +1,53 @@
+import 'package:hive/hive.dart';
+
+part 'clip.g.dart';
+
+@HiveType(typeId: 0)
+class Clip extends HiveObject {
+  @HiveField(0)
+  String id;
+
+  @HiveField(1)
+  String name;
+
+  /// Absolute path to the saved clip video file inside the app library.
+  @HiveField(2)
+  String filePath;
+
+  /// Path of the original source video this clip was cut from.
+  @HiveField(3)
+  String sourcePath;
+
+  /// Display name of the original source video.
+  @HiveField(4)
+  String sourceName;
+
+  /// Start time in milliseconds within the source video.
+  @HiveField(5)
+  int startMs;
+
+  /// End time in milliseconds within the source video.
+  @HiveField(6)
+  int endMs;
+
+  /// Path to a generated thumbnail image (may be empty).
+  @HiveField(7)
+  String thumbnailPath;
+
+  @HiveField(8)
+  int createdAtMs;
+
+  Clip({
+    required this.id,
+    required this.name,
+    required this.filePath,
+    required this.sourcePath,
+    required this.sourceName,
+    required this.startMs,
+    required this.endMs,
+    required this.thumbnailPath,
+    required this.createdAtMs,
+  });
+
+  int get durationMs => endMs - startMs;
+}
