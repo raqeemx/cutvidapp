@@ -13,6 +13,8 @@ import '../utils/app_theme.dart';
 import '../utils/time_format.dart';
 import '../widgets/range_timeline.dart';
 
+enum _ScreenMenu { resetSelection, showHint }
+
 class PlayerScreen extends StatefulWidget {
   final String videoPath;
   final String videoName;
@@ -182,9 +184,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (name == null || name.trim().isEmpty) return;
     if (!mounted) return;
 
+    // Progress is shown inline in the bottom action bar (see _buildBottomBar).
     setState(() => _saving = true);
     _cutProgress.value = 0;
-    _showProgressDialog();
 
     final id = const Uuid().v4();
 
@@ -197,8 +199,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
 
     if (!mounted) return;
-    // Close the progress dialog.
-    Navigator.of(context, rootNavigator: true).pop();
 
     if (outPath == null) {
       setState(() => _saving = false);
@@ -229,60 +229,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     setState(() => _saving = false);
 
     _showSavedDialog(name.trim());
-  }
-
-  void _showProgressDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => PopScope(
-        canPop: false,
-        child: AlertDialog(
-          title: const Text('جارٍ قص المقطع…'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ValueListenableBuilder<double>(
-                valueListenable: _cutProgress,
-                builder: (context, value, _) {
-                  final pct = (value * 100).clamp(0, 100).toStringAsFixed(0);
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: LinearProgressIndicator(
-                          value: value <= 0 ? null : value,
-                          minHeight: 10,
-                          backgroundColor: AppColors.surfaceLight,
-                          color: AppColors.accent,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        '%$pct',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'تتم المعالجة على جهازك بالكامل دون اتصال.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 
   Future<String?> _askClipName() async {
@@ -376,6 +322,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
   }
 
+  void _resetSelection() {
+    if (_saving) return;
+    setState(() {
+      _previewMode = false;
+      _startMs = 0;
+      _endMs = _durationMs;
+    });
+    _snack('تمت إعادة تحديد الفيديو كاملاً.');
+  }
+
+  void _showHintAgain() {
+    _settings?.put('player_hint_seen', false);
+    setState(() => _showHint = true);
+  }
+
   void _snack(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg), duration: const Duration(seconds: 2)),
@@ -391,6 +352,37 @@ class _PlayerScreenState extends State<PlayerScreen> {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
+        actions: [
+          PopupMenuButton<_ScreenMenu>(
+            tooltip: 'المزيد',
+            color: AppColors.surface,
+            icon: const Icon(Icons.more_horiz_rounded),
+            onSelected: (a) {
+              switch (a) {
+                case _ScreenMenu.resetSelection:
+                  _resetSelection();
+                case _ScreenMenu.showHint:
+                  _showHintAgain();
+              }
+            },
+            itemBuilder: (ctx) => const [
+              PopupMenuItem(
+                value: _ScreenMenu.resetSelection,
+                child: _MenuRow(
+                  icon: Icons.restart_alt_rounded,
+                  label: 'إعادة التحديد للكامل',
+                ),
+              ),
+              PopupMenuItem(
+                value: _ScreenMenu.showHint,
+                child: _MenuRow(
+                  icon: Icons.help_outline_rounded,
+                  label: 'إظهار التلميح',
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
       body: SafeArea(
         top: false,
@@ -659,44 +651,84 @@ class _PlayerScreenState extends State<PlayerScreen> {
         color: AppColors.surface,
         border: Border(top: BorderSide(color: AppColors.surfaceLight)),
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // Secondary: preview
-          Expanded(
-            flex: 2,
-            child: OutlinedButton.icon(
-              onPressed: _saving ? null : _previewClip,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.textPrimary,
-                side: const BorderSide(color: AppColors.surfaceLight),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
+          Row(
+            children: [
+              // Secondary: preview
+              Expanded(
+                flex: 2,
+                child: OutlinedButton.icon(
+                  onPressed: _saving ? null : _previewClip,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.textPrimary,
+                    side: const BorderSide(color: AppColors.surfaceLight),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  icon: const Icon(Icons.visibility_rounded, size: 20),
+                  label: const Text('معاينة'),
                 ),
               ),
-              icon: const Icon(Icons.visibility_rounded, size: 20),
-              label: const Text('معاينة'),
-            ),
+              const SizedBox(width: 12),
+              // Primary: save (wide)
+              Expanded(
+                flex: 3,
+                child: ElevatedButton.icon(
+                  onPressed: _saving ? null : _saveClip,
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.black,
+                          ),
+                        )
+                      : const Icon(Icons.save_alt_rounded),
+                  label: Text(_saving ? 'جارٍ القص…' : 'حفظ المقطع'),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          // Primary: save (wide)
-          Expanded(
-            flex: 3,
-            child: ElevatedButton.icon(
-              onPressed: _saving ? null : _saveClip,
-              icon: _saving
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.black,
+          // Inline real progress while cutting.
+          if (_saving)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: ValueListenableBuilder<double>(
+                valueListenable: _cutProgress,
+                builder: (context, value, _) {
+                  final pct = (value * 100).clamp(0, 100).toStringAsFixed(0);
+                  return Row(
+                    children: [
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: LinearProgressIndicator(
+                            value: value <= 0 ? null : value,
+                            minHeight: 8,
+                            backgroundColor: AppColors.surfaceLight,
+                            color: AppColors.accent,
+                          ),
+                        ),
                       ),
-                    )
-                  : const Icon(Icons.save_alt_rounded),
-              label: Text(_saving ? 'جارٍ القص…' : 'حفظ المقطع'),
+                      const SizedBox(width: 12),
+                      Text(
+                        '%$pct',
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -743,6 +775,23 @@ class _HintBanner extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _MenuRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  const _MenuRow({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, color: AppColors.textPrimary, size: 20),
+        const SizedBox(width: 12),
+        Text(label, style: const TextStyle(color: AppColors.textPrimary)),
+      ],
     );
   }
 }
