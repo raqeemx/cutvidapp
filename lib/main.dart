@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import 'services/clip_repository.dart';
 import 'services/incoming_media.dart';
+import 'services/playback_store.dart';
 import 'screens/home_screen.dart';
 import 'screens/media_resolver_screen.dart';
 import 'utils/app_theme.dart';
@@ -17,6 +18,8 @@ void main() async {
 
   final repo = ClipRepository();
   await repo.init();
+
+  await PlaybackStore.init();
 
   // A video may have launched the app from outside ("Open with").
   final initialUri = await IncomingMedia.getInitialMedia();
