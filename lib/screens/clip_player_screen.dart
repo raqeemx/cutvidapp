@@ -31,7 +31,7 @@ class _ClipPlayerScreenState extends State<ClipPlayerScreen> {
       final file = File(widget.clip.filePath);
       if (!await file.exists()) {
         setState(
-          () => _error = 'Clip file not found. It may have been deleted.',
+          () => _error = 'ملف المقطع غير موجود. ربما تم حذفه.',
         );
         return;
       }
@@ -49,7 +49,7 @@ class _ClipPlayerScreenState extends State<ClipPlayerScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = 'Could not play this clip.\n$e');
+      setState(() => _error = 'تعذّر تشغيل هذا المقطع.\n$e');
     }
   }
 
@@ -199,7 +199,7 @@ class _ClipPlayerScreenState extends State<ClipPlayerScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Original video',
+                        'الفيديو الأصلي',
                         style: TextStyle(
                           color: AppColors.textSecondary,
                           fontSize: 11,

@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:video_player/video_player.dart';
@@ -38,10 +40,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   bool _saving = false;
 
+  // Live progress (0..1) of the FFmpeg cut, used by the progress dialog.
+  final ValueNotifier<double> _cutProgress = ValueNotifier<double>(0);
+
+  // Momentary highlight after marking a point (visual confirmation).
+  bool _startFlash = false;
+  bool _endFlash = false;
+
+  // First-run guidance.
+  Box? _settings;
+  bool _showHint = false;
+
   @override
   void initState() {
     super.initState();
     _init();
+    _loadHint();
   }
 
   Future<void> _init() async {
@@ -56,10 +70,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = 'Could not open this video.\n$e');
+      setState(() => _error = 'تعذّر فتح هذا الفيديو.\n$e');
     }
   }
 
+  Future<void> _loadHint() async {
+    final box = await Hive.openBox('settings');
+    if (!mounted) return;
+    setState(() {
+      _settings = box;
+      _showHint = !(box.get('player_hint_seen', defaultValue: false) as bool);
+    });
+  }
+
+  void _dismissHint() {
+    _settings?.put('player_hint_seen', true);
+    setState(() => _showHint = false);
+  }
+
+  /// Only handles the preview auto-stop. Frequent UI updates are driven by
+  /// ValueListenableBuilder on the controller, not setState, to avoid
+  /// rebuilding the whole screen on every tick.
   void _onTick() {
     final c = _controller;
     if (c == null) return;
@@ -71,13 +102,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if (mounted) setState(() => _previewMode = false);
       }
     }
-    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
     _controller?.removeListener(_onTick);
     _controller?.dispose();
+    _cutProgress.dispose();
     super.dispose();
   }
 
@@ -97,8 +128,29 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
   }
 
+  void _flash({required bool isStart}) {
+    setState(() {
+      if (isStart) {
+        _startFlash = true;
+      } else {
+        _endFlash = true;
+      }
+    });
+    Future.delayed(const Duration(milliseconds: 600), () {
+      if (!mounted) return;
+      setState(() {
+        if (isStart) {
+          _startFlash = false;
+        } else {
+          _endFlash = false;
+        }
+      });
+    });
+  }
+
   void _setStart() {
     final pos = _positionMs;
+    HapticFeedback.mediumImpact();
     setState(() {
       _startMs = pos;
       // Keep end valid.
@@ -106,28 +158,55 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _endMs = null;
       }
     });
-    _snack('Start set at ${formatMs(pos)}');
+    _flash(isStart: true);
+    _snack('تم ضبط البداية عند ${formatMs(pos)}');
   }
 
   void _setEnd() {
     final pos = _positionMs;
     if (_startMs == null) {
-      _snack('Set the start point first.');
+      _snack('اضبط نقطة البداية أولاً.');
       return;
     }
     if (pos <= _startMs!) {
-      _snack('End must be after the start point.');
+      _snack('يجب أن تكون النهاية بعد نقطة البداية.');
       return;
     }
+    HapticFeedback.mediumImpact();
     setState(() => _endMs = pos);
-    _snack('End set at ${formatMs(pos)}');
+    _flash(isStart: false);
+    _snack('تم ضبط النهاية عند ${formatMs(pos)}');
+  }
+
+  // ---- Live drag handlers from the timeline ----
+
+  void _onStartDragged(int ms) {
+    setState(() {
+      _previewMode = false;
+      _startMs = ms;
+      if (_endMs != null && _endMs! <= _startMs!) _endMs = null;
+    });
+    _controller?.seekTo(Duration(milliseconds: ms));
+  }
+
+  void _onEndDragged(int ms) {
+    setState(() {
+      _previewMode = false;
+      _endMs = ms;
+    });
+    _controller?.seekTo(Duration(milliseconds: ms));
+  }
+
+  void _onSeek(int ms) {
+    setState(() => _previewMode = false);
+    _controller?.seekTo(Duration(milliseconds: ms));
   }
 
   Future<void> _previewClip() async {
     final c = _controller;
     if (c == null) return;
     if (_startMs == null || _endMs == null) {
-      _snack('Mark both start and end first.');
+      _snack('حدّد البداية والنهاية أولاً.');
       return;
     }
     await c.seekTo(Duration(milliseconds: _startMs!));
@@ -137,13 +216,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   String? _validateRange() {
     if (_startMs == null || _endMs == null) {
-      return 'You must mark both start and end before saving.';
+      return 'يجب تحديد البداية والنهاية قبل الحفظ.';
     }
     if (_endMs! <= _startMs!) {
-      return 'End time must be after the start time.';
+      return 'يجب أن يكون وقت النهاية بعد وقت البداية.';
     }
     if ((_endMs! - _startMs!) < 300) {
-      return 'Clip is too short. Select a longer range.';
+      return 'المقطع قصير جداً. اختر مدى أطول.';
     }
     return null;
   }
@@ -159,8 +238,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final repo = context.read<ClipRepository>();
     final name = await _askClipName();
     if (name == null || name.trim().isEmpty) return;
+    if (!mounted) return;
 
     setState(() => _saving = true);
+    _cutProgress.value = 0;
+    _showProgressDialog();
+
     final id = const Uuid().v4();
 
     final outPath = await VideoCutter.cut(
@@ -168,13 +251,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
       startMs: _startMs!,
       endMs: _endMs!,
       clipId: id,
+      onProgress: (p) => _cutProgress.value = p,
     );
 
     if (!mounted) return;
+    // Close the progress dialog.
+    Navigator.of(context, rootNavigator: true).pop();
 
     if (outPath == null) {
       setState(() => _saving = false);
-      _snack('Failed to cut the clip. Try a different range.');
+      _snack('تعذّر قص المقطع. جرّب مدى مختلفاً.');
       return;
     }
 
@@ -203,31 +289,85 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _showSavedDialog(name.trim());
   }
 
+  void _showProgressDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          title: const Text('جارٍ قص المقطع…'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ValueListenableBuilder<double>(
+                valueListenable: _cutProgress,
+                builder: (context, value, _) {
+                  final pct = (value * 100).clamp(0, 100).toStringAsFixed(0);
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: LinearProgressIndicator(
+                          value: value <= 0 ? null : value,
+                          minHeight: 10,
+                          backgroundColor: AppColors.surfaceLight,
+                          color: AppColors.accent,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        '%$pct',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'تتم المعالجة على جهازك بالكامل دون اتصال.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<String?> _askClipName() async {
     final controller = TextEditingController(
-      text: 'Clip ${formatMs(_startMs!)}-${formatMs(_endMs!)}',
+      text: 'مقطع ${formatMs(_startMs!)}-${formatMs(_endMs!)}',
     );
     return showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Name your clip'),
+        title: const Text('سمِّ المقطع'),
         content: TextField(
           controller: controller,
           autofocus: true,
           style: const TextStyle(color: AppColors.textPrimary),
           decoration: const InputDecoration(
-            hintText: 'Enter a name',
+            hintText: 'أدخل اسماً',
             border: OutlineInputBorder(),
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
+            child: const Text('إلغاء'),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, controller.text),
-            child: const Text('Save'),
+            child: const Text('حفظ'),
           ),
         ],
       ),
@@ -242,11 +382,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
           children: const [
             Icon(Icons.check_circle_rounded, color: AppColors.accent2),
             SizedBox(width: 10),
-            Text('Clip saved'),
+            Text('تم حفظ المقطع'),
           ],
         ),
         content: Text(
-          '"$name" was saved to your library.\nYou can keep cutting more clips from this video.',
+          'تم حفظ "$name" في مكتبتك.\nيمكنك متابعة قص مقاطع أخرى من هذا الفيديو.',
           style: const TextStyle(color: AppColors.textSecondary),
         ),
         actions: [
@@ -258,11 +398,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 _endMs = null;
               });
             },
-            child: const Text('Cut another'),
+            child: const Text('قص مقطع آخر'),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('OK'),
+            child: const Text('حسناً'),
           ),
         ],
       ),
@@ -276,7 +416,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       builder: (ctx) => _TimeEditorDialog(
         initialMs: current,
         maxMs: _durationMs,
-        title: isStart ? 'Edit start time' : 'Edit end time',
+        title: isStart ? 'تعديل وقت البداية' : 'تعديل وقت النهاية',
       ),
     );
     if (result == null) return;
@@ -286,7 +426,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if (_endMs != null && _endMs! <= _startMs!) _endMs = null;
       } else {
         if (_startMs != null && result <= _startMs!) {
-          _snack('End must be after start.');
+          _snack('يجب أن تكون النهاية بعد البداية.');
           return;
         }
         _endMs = result;
@@ -341,7 +481,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   if (_previewMode)
                     Positioned(
                       top: 10,
-                      left: 10,
+                      right: 10,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 10,
@@ -352,7 +492,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: const Text(
-                          'PREVIEW',
+                          'معاينة',
                           style: TextStyle(
                             color: Colors.black,
                             fontWeight: FontWeight.bold,
@@ -361,21 +501,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         ),
                       ),
                     ),
-                  GestureDetector(
-                    onTap: _togglePlay,
-                    child: AnimatedOpacity(
-                      opacity: c.value.isPlaying ? 0 : 1,
-                      duration: const Duration(milliseconds: 200),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.black54,
-                          borderRadius: BorderRadius.circular(50),
-                        ),
-                        padding: const EdgeInsets.all(14),
-                        child: const Icon(
-                          Icons.play_arrow_rounded,
-                          color: Colors.white,
-                          size: 44,
+                  // Center play overlay — rebuilds only on play-state changes.
+                  ValueListenableBuilder<VideoPlayerValue>(
+                    valueListenable: c,
+                    builder: (context, value, _) => GestureDetector(
+                      onTap: _togglePlay,
+                      child: AnimatedOpacity(
+                        opacity: value.isPlaying ? 0 : 1,
+                        duration: const Duration(milliseconds: 200),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.black54,
+                            borderRadius: BorderRadius.circular(50),
+                          ),
+                          padding: const EdgeInsets.all(14),
+                          child: const Icon(
+                            Icons.play_arrow_rounded,
+                            color: Colors.white,
+                            size: 44,
+                          ),
                         ),
                       ),
                     ),
@@ -385,17 +529,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
             ),
           ),
 
-          // Scrub position + play controls
+          // Scrub position + play controls — isolated rebuilds via the
+          // controller's ValueListenable instead of a screen-wide setState.
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
-            child: Column(
-              children: [
-                Row(
+            child: ValueListenableBuilder<VideoPlayerValue>(
+              valueListenable: c,
+              builder: (context, value, _) {
+                final posMs = value.position.inMilliseconds;
+                final durMs = value.duration.inMilliseconds;
+                return Row(
                   children: [
                     IconButton(
                       onPressed: _togglePlay,
                       icon: Icon(
-                        c.value.isPlaying
+                        value.isPlaying
                             ? Icons.pause_circle_filled_rounded
                             : Icons.play_circle_fill_rounded,
                         color: AppColors.accent,
@@ -420,17 +568,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               ),
                             ),
                             child: Slider(
-                              value: _positionMs
-                                  .clamp(0, _durationMs)
-                                  .toDouble(),
-                              max: _durationMs.toDouble().clamp(
-                                1,
-                                double.infinity,
-                              ),
-                              onChanged: (v) {
-                                setState(() => _previewMode = false);
-                                c.seekTo(Duration(milliseconds: v.toInt()));
-                              },
+                              value: posMs.clamp(0, durMs).toDouble(),
+                              max: durMs.toDouble().clamp(1, double.infinity),
+                              onChanged: (v) => _onSeek(v.toInt()),
                             ),
                           ),
                           Padding(
@@ -439,14 +579,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Text(
-                                  formatMs(_positionMs),
+                                  formatMs(posMs),
                                   style: const TextStyle(
                                     color: AppColors.textSecondary,
                                     fontSize: 12,
                                   ),
                                 ),
                                 Text(
-                                  formatMs(_durationMs),
+                                  formatMs(durMs),
                                   style: const TextStyle(
                                     color: AppColors.textSecondary,
                                     fontSize: 12,
@@ -459,19 +599,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       ),
                     ),
                   ],
-                ),
-              ],
+                );
+              },
             ),
           ),
 
-          // Range timeline
+          // Range timeline (draggable handles) — playhead follows position.
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: RangeTimeline(
-              durationMs: _durationMs,
-              positionMs: _positionMs,
-              startMs: _startMs,
-              endMs: _endMs,
+            child: ValueListenableBuilder<VideoPlayerValue>(
+              valueListenable: c,
+              builder: (context, value, _) => RangeTimeline(
+                durationMs: value.duration.inMilliseconds,
+                positionMs: value.position.inMilliseconds,
+                startMs: _startMs,
+                endMs: _endMs,
+                onStartChanged: _onStartDragged,
+                onEndChanged: _onEndDragged,
+                onSeek: _onSeek,
+              ),
             ),
           ),
 
@@ -482,8 +628,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
               children: [
                 Expanded(
                   child: _TimeCard(
-                    label: 'START',
-                    value: _startMs == null ? '--:--' : formatMs(_startMs!),
+                    label: 'البداية',
+                    value: _startMs == null
+                        ? 'اضغط ضبط البداية'
+                        : formatMs(_startMs!),
+                    isPlaceholder: _startMs == null,
+                    highlight: _startFlash,
                     color: AppColors.accent2,
                     onEdit: _startMs == null
                         ? null
@@ -493,8 +643,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: _TimeCard(
-                    label: 'END',
-                    value: _endMs == null ? '--:--' : formatMs(_endMs!),
+                    label: 'النهاية',
+                    value: _endMs == null
+                        ? 'اضغط ضبط النهاية'
+                        : formatMs(_endMs!),
+                    isPlaceholder: _endMs == null,
+                    highlight: _endFlash,
                     color: AppColors.accent,
                     onEdit: _endMs == null
                         ? null
@@ -509,12 +663,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
             Padding(
               padding: const EdgeInsets.only(top: 10),
               child: Text(
-                'Clip length: ${formatMs(_endMs! - _startMs!)}',
+                'مدة المقطع: ${formatMs(_endMs! - _startMs!)}',
                 style: const TextStyle(
                   color: AppColors.textPrimary,
                   fontWeight: FontWeight.w600,
                 ),
               ),
+            ),
+
+          // First-run guidance hint.
+          if (_showHint)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+              child: _HintBanner(onDismiss: _dismissHint),
             ),
 
           const SizedBox(height: 16),
@@ -529,7 +690,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     Expanded(
                       child: _ActionButton(
                         icon: Icons.flag_circle_rounded,
-                        label: 'Set Start',
+                        label: 'ضبط البداية',
                         color: AppColors.accent2,
                         onTap: _setStart,
                       ),
@@ -538,7 +699,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     Expanded(
                       child: _ActionButton(
                         icon: Icons.stop_circle_rounded,
-                        label: 'Set End',
+                        label: 'ضبط النهاية',
                         color: AppColors.accent,
                         onTap: _setEnd,
                       ),
@@ -551,7 +712,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     Expanded(
                       child: _ActionButton(
                         icon: Icons.visibility_rounded,
-                        label: 'Preview Clip',
+                        label: 'معاينة المقطع',
                         color: AppColors.surfaceLight,
                         textColor: AppColors.textPrimary,
                         onTap: _previewClip,
@@ -574,7 +735,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             ),
                           )
                         : const Icon(Icons.save_alt_rounded),
-                    label: Text(_saving ? 'Cutting clip…' : 'Save Clip'),
+                    label: Text(_saving ? 'جارٍ القص…' : 'حفظ المقطع'),
                   ),
                 ),
                 const SizedBox(height: 28),
@@ -589,26 +750,76 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
 // ---- small widgets ----
 
+class _HintBanner extends StatelessWidget {
+  final VoidCallback onDismiss;
+  const _HintBanner({required this.onDismiss});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+      decoration: BoxDecoration(
+        color: AppColors.accent2.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.accent2.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.lightbulb_rounded,
+              color: AppColors.accent2, size: 20),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Text(
+              'حرّك الفيديو إلى اللحظة المطلوبة ثم اضغط «ضبط البداية»، وكرّر '
+              'للنهاية. يمكنك أيضاً سحب المقابض على الخط الزمني لضبط دقيق.',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 12.5,
+                height: 1.5,
+              ),
+            ),
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            onPressed: onDismiss,
+            icon: const Icon(Icons.close_rounded,
+                color: AppColors.textSecondary, size: 18),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _TimeCard extends StatelessWidget {
   final String label;
   final String value;
   final Color color;
   final VoidCallback? onEdit;
+  final bool isPlaceholder;
+  final bool highlight;
   const _TimeCard({
     required this.label,
     required this.value,
     required this.color,
     this.onEdit,
+    this.isPlaceholder = false,
+    this.highlight = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 250),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: highlight ? color.withValues(alpha: 0.18) : AppColors.surface,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withValues(alpha: 0.4), width: 1.2),
+        border: Border.all(
+          color: color.withValues(alpha: highlight ? 1 : 0.4),
+          width: highlight ? 2 : 1.2,
+        ),
       ),
       child: Row(
         children: [
@@ -618,28 +829,35 @@ class _TimeCard extends StatelessWidget {
             decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           ),
           const SizedBox(width: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: TextStyle(
-                  color: color,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-              ),
-              Text(
-                value,
-                style: const TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: isPlaceholder
+                        ? AppColors.textSecondary
+                        : AppColors.textPrimary,
+                    fontSize: isPlaceholder ? 12.5 : 18,
+                    fontWeight: isPlaceholder
+                        ? FontWeight.w600
+                        : FontWeight.w800,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-          const Spacer(),
           if (onEdit != null)
             IconButton(
               padding: EdgeInsets.zero,
@@ -776,9 +994,9 @@ class _TimeEditorDialogState extends State<_TimeEditorDialog> {
             ),
           ),
           const SizedBox(height: 16),
-          _adjustRow('Seconds', -1000, 1000, '1s'),
+          _adjustRow('ثوانٍ', -1000, 1000, '1s'),
           const SizedBox(height: 8),
-          _adjustRow('Fine', -100, 100, '0.1s'),
+          _adjustRow('دقيق', -100, 100, '0.1s'),
           const SizedBox(height: 12),
           Slider(
             value: _ms.toDouble().clamp(0, widget.maxMs.toDouble()),
@@ -790,11 +1008,11 @@ class _TimeEditorDialogState extends State<_TimeEditorDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: const Text('إلغاء'),
         ),
         ElevatedButton(
           onPressed: () => Navigator.pop(context, _ms),
-          child: const Text('Apply'),
+          child: const Text('تطبيق'),
         ),
       ],
     );
