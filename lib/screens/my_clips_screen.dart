@@ -602,8 +602,7 @@ class _EmptyState extends StatelessWidget {
             ),
             SizedBox(height: 8),
             Text(
-              'انتقل إلى تبويب الفيديوهات، اختر فيديو، حدّد الجزء الذي يعجبك، '
-              'واحفظ أول مقطع لك.',
+              'افتح تبويب الفيديوهات، اختر فيديو، وحدّد أول لحظة تعجبك.',
               textAlign: TextAlign.center,
               style: TextStyle(color: AppColors.textSecondary, height: 1.5),
             ),
