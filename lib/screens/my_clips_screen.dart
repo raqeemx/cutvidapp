@@ -13,14 +13,59 @@ import '../utils/app_theme.dart';
 import '../utils/time_format.dart';
 import 'clip_player_screen.dart';
 
-class MyClipsScreen extends StatelessWidget {
+enum ClipSort { newest, longest, name }
+
+extension on ClipSort {
+  String get label => switch (this) {
+        ClipSort.newest => 'الأحدث',
+        ClipSort.longest => 'الأطول',
+        ClipSort.name => 'الاسم',
+      };
+}
+
+class MyClipsScreen extends StatefulWidget {
   const MyClipsScreen({super.key});
+
+  @override
+  State<MyClipsScreen> createState() => _MyClipsScreenState();
+}
+
+class _MyClipsScreenState extends State<MyClipsScreen> {
+  final TextEditingController _searchController = TextEditingController();
+  String _query = '';
+  ClipSort _sort = ClipSort.newest;
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  List<Clip> _applyFilters(List<Clip> clips) {
+    final q = _query.trim().toLowerCase();
+    var list = q.isEmpty
+        ? List<Clip>.from(clips)
+        : clips.where((c) => c.name.toLowerCase().contains(q)).toList();
+
+    switch (_sort) {
+      case ClipSort.newest:
+        list.sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
+      case ClipSort.longest:
+        list.sort((a, b) => b.durationMs.compareTo(a.durationMs));
+      case ClipSort.name:
+        list.sort(
+          (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+        );
+    }
+    return list;
+  }
 
   @override
   Widget build(BuildContext context) {
     return Consumer<ClipRepository>(
       builder: (context, repo, _) {
-        final clips = repo.clips;
+        final all = repo.clips;
+        final clips = _applyFilters(all);
         return Column(
           children: [
             const Padding(
@@ -33,7 +78,7 @@ class MyClipsScreen extends StatelessWidget {
                   ),
                   SizedBox(width: 10),
                   Text(
-                    'My Clips',
+                    'مقاطعي',
                     style: TextStyle(
                       color: AppColors.textPrimary,
                       fontSize: 22,
@@ -43,9 +88,12 @@ class MyClipsScreen extends StatelessWidget {
                 ],
               ),
             ),
+            if (all.isNotEmpty) _buildSearchAndSort(),
             Expanded(
-              child: clips.isEmpty
+              child: all.isEmpty
                   ? const _EmptyState()
+                  : clips.isEmpty
+                  ? const _NoResults()
                   : ListView.separated(
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                       itemCount: clips.length,
@@ -58,7 +106,112 @@ class MyClipsScreen extends StatelessWidget {
       },
     );
   }
+
+  Widget _buildSearchAndSort() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _searchController,
+              onChanged: (v) => setState(() => _query = v),
+              style: const TextStyle(color: AppColors.textPrimary),
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: 'ابحث بالاسم…',
+                hintStyle: const TextStyle(color: AppColors.textSecondary),
+                prefixIcon: const Icon(
+                  Icons.search_rounded,
+                  color: AppColors.textSecondary,
+                ),
+                suffixIcon: _query.isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(
+                          Icons.clear_rounded,
+                          color: AppColors.textSecondary,
+                          size: 20,
+                        ),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _query = '');
+                        },
+                      ),
+                filled: true,
+                fillColor: AppColors.surface,
+                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          PopupMenuButton<ClipSort>(
+            tooltip: 'فرز',
+            initialValue: _sort,
+            color: AppColors.surface,
+            onSelected: (s) => setState(() => _sort = s),
+            itemBuilder: (ctx) => ClipSort.values
+                .map(
+                  (s) => PopupMenuItem<ClipSort>(
+                    value: s,
+                    child: Row(
+                      children: [
+                        Icon(
+                          s == _sort
+                              ? Icons.radio_button_checked_rounded
+                              : Icons.radio_button_unchecked_rounded,
+                          size: 18,
+                          color: s == _sort
+                              ? AppColors.accent
+                              : AppColors.textSecondary,
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          s.label,
+                          style: const TextStyle(color: AppColors.textPrimary),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+                .toList(),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.sort_rounded,
+                    color: AppColors.textSecondary,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    _sort.label,
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
+
+enum _ClipMenuAction { rename, gallery, delete }
 
 class _ClipCard extends StatelessWidget {
   final Clip clip;
@@ -80,7 +233,7 @@ class _ClipCard extends StatelessWidget {
     final newName = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Rename clip'),
+        title: const Text('إعادة تسمية المقطع'),
         content: TextField(
           controller: controller,
           autofocus: true,
@@ -90,11 +243,11 @@ class _ClipCard extends StatelessWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
+            child: const Text('إلغاء'),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, controller.text),
-            child: const Text('Save'),
+            child: const Text('حفظ'),
           ),
         ],
       ),
@@ -104,39 +257,29 @@ class _ClipCard extends StatelessWidget {
     }
   }
 
-  Future<void> _delete(BuildContext context) async {
+  /// Soft-delete with a 5-second window to undo before files are removed.
+  void _delete(BuildContext context) {
     final repo = context.read<ClipRepository>();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete clip?'),
-        content: Text(
-          '"${clip.name}" will be permanently removed.',
-          style: const TextStyle(color: AppColors.textSecondary),
+    final messenger = ScaffoldMessenger.of(context);
+    repo.scheduleDelete(clip.id);
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
+      SnackBar(
+        duration: const Duration(seconds: 5),
+        content: Text('تم حذف "${clip.name}"'),
+        action: SnackBarAction(
+          label: 'تراجع',
+          textColor: AppColors.accent,
+          onPressed: () => repo.undoDelete(clip.id),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete'),
-          ),
-        ],
       ),
     );
-    if (ok == true) {
-      await repo.deleteClip(clip.id);
-      if (context.mounted) _snack(context, 'Clip deleted');
-    }
   }
 
   Future<void> _share(BuildContext context) async {
     final file = File(clip.filePath);
     if (!await file.exists()) {
-      if (context.mounted) _snack(context, 'Clip file not found.');
+      if (context.mounted) _snack(context, 'ملف المقطع غير موجود.');
       return;
     }
     await Share.shareXFiles([XFile(clip.filePath)], text: clip.name);
@@ -146,7 +289,7 @@ class _ClipCard extends StatelessWidget {
     final granted = await PermissionService.requestSaveAccess();
     if (!context.mounted) return;
     if (!granted) {
-      _snack(context, 'Permission needed to save to gallery.');
+      _snack(context, 'يلزم منح الإذن للحفظ في المعرض.');
       return;
     }
     try {
@@ -158,12 +301,12 @@ class _ClipCard extends StatelessWidget {
       );
       if (!context.mounted) return;
       if (result.isSuccess) {
-        _snack(context, 'Saved to gallery (Movies/ClipMaster)');
+        _snack(context, 'تم الحفظ في المعرض (Movies/ClipMaster)');
       } else {
-        _snack(context, 'Could not save to gallery.');
+        _snack(context, 'تعذّر الحفظ في المعرض.');
       }
     } catch (e) {
-      if (context.mounted) _snack(context, 'Save failed: $e');
+      if (context.mounted) _snack(context, 'فشل الحفظ: $e');
     }
   }
 
@@ -264,7 +407,7 @@ class _ClipCard extends StatelessWidget {
                           const SizedBox(width: 4),
                           Expanded(
                             child: Text(
-                              'From: ${clip.sourceName}',
+                              'من: ${clip.sourceName}',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
@@ -281,36 +424,21 @@ class _ClipCard extends StatelessWidget {
               ],
             ),
             const Divider(height: 20, color: AppColors.surfaceLight),
-            // Action row
+            // Action row — three primary actions; the rest live in a menu.
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 _iconAction(
                   Icons.play_arrow_rounded,
-                  'Play',
+                  'تشغيل',
                   () => _play(context),
                 ),
                 _iconAction(
-                  Icons.edit_rounded,
-                  'Rename',
-                  () => _rename(context),
-                ),
-                _iconAction(
-                  Icons.download_rounded,
-                  'Gallery',
-                  () => _saveToGallery(context),
-                ),
-                _iconAction(
                   Icons.share_rounded,
-                  'Share',
+                  'مشاركة',
                   () => _share(context),
                 ),
-                _iconAction(
-                  Icons.delete_outline_rounded,
-                  'Delete',
-                  () => _delete(context),
-                  color: AppColors.danger,
-                ),
+                _moreMenu(context),
               ],
             ),
           ],
@@ -319,23 +447,127 @@ class _ClipCard extends StatelessWidget {
     );
   }
 
-  Widget _iconAction(
-    IconData icon,
-    String label,
-    VoidCallback onTap, {
-    Color color = AppColors.textPrimary,
-  }) {
+  Widget _moreMenu(BuildContext context) {
+    return PopupMenuButton<_ClipMenuAction>(
+      tooltip: 'المزيد',
+      color: AppColors.surface,
+      onSelected: (a) {
+        switch (a) {
+          case _ClipMenuAction.rename:
+            _rename(context);
+          case _ClipMenuAction.gallery:
+            _saveToGallery(context);
+          case _ClipMenuAction.delete:
+            _delete(context);
+        }
+      },
+      itemBuilder: (ctx) => const [
+        PopupMenuItem(
+          value: _ClipMenuAction.rename,
+          child: _MenuRow(
+            icon: Icons.edit_rounded,
+            label: 'إعادة تسمية',
+          ),
+        ),
+        PopupMenuItem(
+          value: _ClipMenuAction.gallery,
+          child: _MenuRow(
+            icon: Icons.download_rounded,
+            label: 'حفظ في المعرض',
+          ),
+        ),
+        PopupMenuItem(
+          value: _ClipMenuAction.delete,
+          child: _MenuRow(
+            icon: Icons.delete_outline_rounded,
+            label: 'حذف',
+            color: AppColors.danger,
+          ),
+        ),
+      ],
+      child: const _IconActionContent(
+        icon: Icons.more_horiz_rounded,
+        label: 'المزيد',
+      ),
+    );
+  }
+
+  Widget _iconAction(IconData icon, String label, VoidCallback onTap) {
     return InkWell(
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(12),
       onTap: onTap,
+      child: _IconActionContent(icon: icon, label: label),
+    );
+  }
+}
+
+/// Shared visual for action-row entries with a 48dp-friendly touch target.
+class _IconActionContent extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  const _IconActionContent({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: AppColors.textPrimary, size: 24),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 11.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MenuRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  const _MenuRow({
+    required this.icon,
+    required this.label,
+    this.color = AppColors.textPrimary,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, color: color, size: 20),
+        const SizedBox(width: 12),
+        Text(label, style: TextStyle(color: color)),
+      ],
+    );
+  }
+}
+
+class _NoResults extends StatelessWidget {
+  const _NoResults();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        padding: EdgeInsets.all(32),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: color, size: 22),
-            const SizedBox(height: 3),
-            Text(label, style: TextStyle(color: color, fontSize: 11)),
+            Icon(Icons.search_off_rounded, size: 56, color: AppColors.surfaceLight),
+            SizedBox(height: 14),
+            Text(
+              'لا توجد نتائج مطابقة',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
           ],
         ),
       ),
@@ -361,7 +593,7 @@ class _EmptyState extends StatelessWidget {
             ),
             SizedBox(height: 16),
             Text(
-              'No clips yet',
+              'لا توجد مقاطع بعد',
               style: TextStyle(
                 color: AppColors.textPrimary,
                 fontSize: 18,
@@ -370,7 +602,8 @@ class _EmptyState extends StatelessWidget {
             ),
             SizedBox(height: 8),
             Text(
-              'Go to the Videos tab, pick a video, mark the part you like, and save your first clip.',
+              'انتقل إلى تبويب الفيديوهات، اختر فيديو، حدّد الجزء الذي يعجبك، '
+              'واحفظ أول مقطع لك.',
               textAlign: TextAlign.center,
               style: TextStyle(color: AppColors.textSecondary, height: 1.5),
             ),

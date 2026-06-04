@@ -20,7 +20,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final granted = await PermissionService.requestVideoAccess();
     if (!mounted) return;
     if (!granted) {
-      _showSnack('Storage/video permission is required to pick a video.');
+      _showSnack('يلزم إذن الوصول إلى الفيديو لاختيار مقطع.');
       return;
     }
 
@@ -57,7 +57,7 @@ class _HomeScreenState extends State<HomeScreen> {
               foregroundColor: Colors.black,
               icon: const Icon(Icons.video_library_rounded),
               label: const Text(
-                'Pick Video',
+                'اختيار فيديو',
                 style: TextStyle(fontWeight: FontWeight.w700),
               ),
             )
@@ -69,12 +69,12 @@ class _HomeScreenState extends State<HomeScreen> {
           BottomNavigationBarItem(
             icon: Icon(Icons.movie_creation_outlined),
             activeIcon: Icon(Icons.movie_creation_rounded),
-            label: 'Videos',
+            label: 'الفيديوهات',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.collections_bookmark_outlined),
             activeIcon: Icon(Icons.collections_bookmark_rounded),
-            label: 'My Clips',
+            label: 'مقاطعي',
           ),
         ],
       ),
@@ -125,7 +125,7 @@ class _PickerTab extends StatelessWidget {
                   ),
                   const SizedBox(height: 28),
                   const Text(
-                    'Cut your favorite moments',
+                    'اقتطع لحظاتك المفضّلة',
                     style: TextStyle(
                       color: AppColors.textPrimary,
                       fontSize: 22,
@@ -135,7 +135,8 @@ class _PickerTab extends StatelessWidget {
                   ),
                   const SizedBox(height: 10),
                   const Text(
-                    'Pick a video from your phone, play it, mark a start and end, then save the clip — all 100% offline.',
+                    'اختر فيديو من جهازك، شغّله، حدّد البداية والنهاية، ثم احفظ '
+                    'المقطع — كل ذلك دون اتصال بالإنترنت تماماً.',
                     style: TextStyle(
                       color: AppColors.textSecondary,
                       fontSize: 14,
@@ -149,7 +150,7 @@ class _PickerTab extends StatelessWidget {
                     child: ElevatedButton.icon(
                       onPressed: onPick,
                       icon: const Icon(Icons.folder_open_rounded),
-                      label: const Text('Choose Video from Device'),
+                      label: const Text('اختر فيديو من الجهاز'),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -176,7 +177,7 @@ class _AppHeader extends StatelessWidget {
           const Icon(Icons.content_cut_rounded, color: AppColors.accent),
           const SizedBox(width: 10),
           const Text(
-            'Clip Master',
+            'قص الفيديو',
             style: TextStyle(
               color: AppColors.textPrimary,
               fontSize: 22,
@@ -207,7 +208,7 @@ class _OfflineBadge extends StatelessWidget {
           Icon(Icons.wifi_off_rounded, size: 16, color: AppColors.accent2),
           SizedBox(width: 8),
           Text(
-            'Works fully offline · No uploads',
+            'يعمل دون اتصال تماماً · بلا رفع للملفات',
             style: TextStyle(
               color: AppColors.accent2,
               fontSize: 12.5,

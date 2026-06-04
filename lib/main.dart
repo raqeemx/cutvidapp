@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
 
@@ -25,9 +26,16 @@ class ClipMasterApp extends StatelessWidget {
     return ChangeNotifierProvider<ClipRepository>.value(
       value: repository,
       child: MaterialApp(
-        title: 'Clip Master',
+        title: 'قص الفيديو',
         debugShowCheckedModeBanner: false,
         theme: buildAppTheme(),
+        locale: const Locale('ar'),
+        supportedLocales: const [Locale('ar'), Locale('en')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
         home: const HomeScreen(),
       ),
     );

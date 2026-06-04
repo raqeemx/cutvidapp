@@ -11,6 +11,10 @@ dependencies:
   flutter:
     sdk: flutter
 
+  # Arabic / RTL localization
+  flutter_localizations:
+    sdk: flutter
+
   cupertino_icons: ^1.0.8
 
   # Video playback
@@ -47,7 +51,7 @@ dependencies:
   uuid: ^4.5.1
 
   # Intl for formatting
-  intl: ^0.19.0
+  intl: ^0.20.2
 
 dev_dependencies:
   flutter_test:

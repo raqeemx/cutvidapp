@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -10,6 +11,11 @@ class ClipRepository extends ChangeNotifier {
   static const String _boxName = 'clips_box';
   late Box<Clip> _box;
   bool _initialized = false;
+
+  /// Clips that are scheduled for deletion but can still be undone.
+  /// They are hidden from [clips] while pending.
+  final Set<String> _pendingDelete = {};
+  final Map<String, Timer> _deleteTimers = {};
 
   bool get initialized => _initialized;
 
@@ -24,7 +30,9 @@ class ClipRepository extends ChangeNotifier {
   }
 
   List<Clip> get clips {
-    final list = _box.values.toList();
+    final list = _box.values
+        .where((c) => !_pendingDelete.contains(c.id))
+        .toList();
     list.sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
     return list;
   }
@@ -40,6 +48,30 @@ class ClipRepository extends ChangeNotifier {
     clip.name = newName;
     await clip.save();
     notifyListeners();
+  }
+
+  /// Hides the clip immediately and commits the real deletion after [delay].
+  /// Call [undoDelete] before the timer fires to restore it.
+  void scheduleDelete(String id, {Duration delay = const Duration(seconds: 5)}) {
+    if (_box.get(id) == null) return;
+    _deleteTimers[id]?.cancel();
+    _pendingDelete.add(id);
+    _deleteTimers[id] = Timer(delay, () => _commitDelete(id));
+    notifyListeners();
+  }
+
+  /// Cancels a pending deletion and brings the clip back into the list.
+  void undoDelete(String id) {
+    if (!_pendingDelete.contains(id)) return;
+    _deleteTimers.remove(id)?.cancel();
+    _pendingDelete.remove(id);
+    notifyListeners();
+  }
+
+  Future<void> _commitDelete(String id) async {
+    _deleteTimers.remove(id);
+    _pendingDelete.remove(id);
+    await deleteClip(id);
   }
 
   Future<void> deleteClip(String id) async {
@@ -58,6 +90,15 @@ class ClipRepository extends ChangeNotifier {
     } catch (_) {}
     await _box.delete(id);
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    for (final t in _deleteTimers.values) {
+      t.cancel();
+    }
+    _deleteTimers.clear();
+    super.dispose();
   }
 
   Clip? getById(String id) => _box.get(id);

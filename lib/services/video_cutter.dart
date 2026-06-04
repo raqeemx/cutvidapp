@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
@@ -37,16 +38,21 @@ class VideoCutter {
   /// Returns the output file path on success, or null on failure.
   ///
   /// Uses re-encoding for accurate cuts (frame-accurate start/end).
+  ///
+  /// [onProgress] is invoked with a value in 0.0..1.0 as encoding advances,
+  /// derived from FFmpeg's statistics callback (processed time vs. clip length).
   static Future<String?> cut({
     required String sourcePath,
     required int startMs,
     required int endMs,
     required String clipId,
+    void Function(double progress)? onProgress,
   }) async {
     final dir = await clipsDirectory();
     final outPath = p.join(dir.path, 'clip_$clipId.mp4');
 
     final start = _ffmpegTime(startMs);
+    final clipDurationMs = (endMs - startMs).toDouble();
     final duration = _ffmpegTime(endMs - startMs);
 
     // -ss after -i for accurate seeking, re-encode for frame accuracy.
@@ -54,16 +60,33 @@ class VideoCutter {
         "-y -i '$sourcePath' -ss $start -t $duration "
         "-c:v mpeg4 -q:v 3 -c:a aac -b:a 128k '$outPath'";
 
-    final session = await FFmpegKit.execute(cmd);
-    final returnCode = await session.getReturnCode();
+    final completer = Completer<String?>();
 
-    if (ReturnCode.isSuccess(returnCode)) {
-      final f = File(outPath);
-      if (await f.exists() && await f.length() > 0) {
-        return outPath;
-      }
-    }
-    return null;
+    await FFmpegKit.executeAsync(
+      cmd,
+      (session) async {
+        final returnCode = await session.getReturnCode();
+        if (ReturnCode.isSuccess(returnCode)) {
+          final f = File(outPath);
+          if (await f.exists() && await f.length() > 0) {
+            onProgress?.call(1.0);
+            if (!completer.isCompleted) completer.complete(outPath);
+            return;
+          }
+        }
+        if (!completer.isCompleted) completer.complete(null);
+      },
+      null,
+      (statistics) {
+        if (onProgress == null || clipDurationMs <= 0) return;
+        // statistics.getTime() is the processed media time in milliseconds.
+        final processed = statistics.getTime().toDouble();
+        final progress = (processed / clipDurationMs).clamp(0.0, 1.0);
+        onProgress(progress);
+      },
+    );
+
+    return completer.future;
   }
 
   /// Generates a thumbnail for a video file. Returns path or empty string.
