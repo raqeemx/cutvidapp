@@ -14,6 +14,7 @@ import '../services/video_cutter.dart';
 import '../utils/app_theme.dart';
 import '../utils/time_format.dart';
 import '../widgets/range_timeline.dart';
+import '../widgets/video_gesture_layer.dart';
 
 enum _ScreenMenu { resetSelection, showHint }
 
@@ -48,6 +49,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   // Live progress (0..1) of the FFmpeg cut, used by the progress dialog.
   final ValueNotifier<double> _cutProgress = ValueNotifier<double>(0);
+
+  // Momentary highlight on a card after capturing its point.
+  bool _startFlash = false;
+  bool _endFlash = false;
 
   // First-run guidance.
   Box? _settings;
@@ -153,7 +158,62 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _onSeek(int ms) {
     setState(() => _previewMode = false);
-    _controller?.seekTo(Duration(milliseconds: ms));
+    _controller?.seekTo(Duration(milliseconds: ms.clamp(0, _durationMs)));
+  }
+
+  /// Relative double-tap seek (±N seconds), clamped to the video bounds.
+  void _seekRelative(int deltaMs) {
+    _onSeek(_positionMs + deltaMs);
+  }
+
+  // ---- Capture start/end while the video keeps playing (no pause) ----
+
+  int get _positionMs => _controller?.value.position.inMilliseconds ?? 0;
+
+  void _flashCard({required bool isStart}) {
+    setState(() {
+      if (isStart) {
+        _startFlash = true;
+      } else {
+        _endFlash = true;
+      }
+    });
+    Future.delayed(const Duration(milliseconds: 600), () {
+      if (!mounted) return;
+      setState(() {
+        if (isStart) {
+          _startFlash = false;
+        } else {
+          _endFlash = false;
+        }
+      });
+    });
+  }
+
+  /// Captures the current playback position as the start point, live.
+  void _captureStart() {
+    final pos = _positionMs.clamp(0, _durationMs);
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _startMs = pos;
+      // Keep the end valid: if it's now at or before start, push it to the end.
+      if (_endMs <= _startMs) _endMs = _durationMs;
+    });
+    _flashCard(isStart: true);
+    _snack('تم التقاط البداية عند ${formatMs(pos)}');
+  }
+
+  /// Captures the current playback position as the end point, live.
+  void _captureEnd() {
+    final pos = _positionMs.clamp(0, _durationMs);
+    if (pos <= _startMs) {
+      _snack('نقطة النهاية يجب أن تكون بعد البداية.');
+      return;
+    }
+    HapticFeedback.mediumImpact();
+    setState(() => _endMs = pos);
+    _flashCard(isStart: false);
+    _snack('تم التقاط النهاية عند ${formatMs(pos)}');
   }
 
   Future<void> _previewClip() async {
@@ -454,35 +514,45 @@ class _PlayerScreenState extends State<PlayerScreen> {
           alignment: Alignment.center,
           children: [
             VideoPlayer(c),
+            // Gesture layer: single tap = play/pause, double tap = ±5s.
+            // Sits above the video and below the (interactive) fullscreen btn.
+            Positioned.fill(
+              child: VideoGestureLayer(
+                onTap: _togglePlay,
+                onSeek: _seekRelative,
+              ),
+            ),
             if (_previewMode)
               Positioned(
                 top: 10,
                 right: 10,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.accent,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Text(
-                    'معاينة',
-                    style: TextStyle(
-                      color: Colors.black,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 11,
+                child: IgnorePointer(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.accent,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Text(
+                      'معاينة',
+                      style: TextStyle(
+                        color: Colors.black,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 11,
+                      ),
                     ),
                   ),
                 ),
               ),
-            // Center play/pause overlay — rebuilds only on play-state changes.
-            ValueListenableBuilder<VideoPlayerValue>(
-              valueListenable: c,
-              builder: (context, value, _) => GestureDetector(
-                onTap: _togglePlay,
-                child: AnimatedOpacity(
+            // Center play/pause overlay — visual only; must not eat taps so the
+            // gesture layer below receives them (hence IgnorePointer).
+            IgnorePointer(
+              child: ValueListenableBuilder<VideoPlayerValue>(
+                valueListenable: c,
+                builder: (context, value, _) => AnimatedOpacity(
                   opacity: value.isPlaying ? 0 : 1,
                   duration: const Duration(milliseconds: 200),
                   child: Container(
@@ -627,6 +697,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
             label: 'البداية',
             value: formatMs(_startMs),
             color: AppColors.accent2,
+            highlight: _startFlash,
             onEdit: () => _editTimeManually(isStart: true),
           ),
         ),
@@ -636,6 +707,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
             label: 'النهاية',
             value: formatMs(_endMs),
             color: AppColors.accent,
+            highlight: _endFlash,
             onEdit: () => _editTimeManually(isStart: false),
           ),
         ),
@@ -694,6 +766,29 @@ class _PlayerScreenState extends State<PlayerScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // Capture start/end live while watching — no pause.
+          Row(
+            children: [
+              Expanded(
+                child: _CaptureButton(
+                  icon: Icons.flag_circle_rounded,
+                  label: 'التقاط البداية',
+                  color: AppColors.accent2,
+                  onTap: _saving ? null : _captureStart,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _CaptureButton(
+                  icon: Icons.stop_circle_rounded,
+                  label: 'التقاط النهاية',
+                  color: AppColors.accent,
+                  onTap: _saving ? null : _captureEnd,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
           Row(
             children: [
               // Secondary: preview
@@ -930,26 +1025,81 @@ class _MenuRow extends StatelessWidget {
   }
 }
 
+/// Compact filled button used for the live "capture start / end" actions.
+class _CaptureButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback? onTap;
+  const _CaptureButton({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    return Material(
+      color: enabled ? color : AppColors.disabled,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                color: enabled ? Colors.black : AppColors.textSecondary,
+                size: 22,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  color: enabled ? Colors.black : AppColors.textSecondary,
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _TimeCard extends StatelessWidget {
   final String label;
   final String value;
   final Color color;
   final VoidCallback? onEdit;
+  final bool highlight;
   const _TimeCard({
     required this.label,
     required this.value,
     required this.color,
     this.onEdit,
+    this.highlight = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 250),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: highlight ? color.withValues(alpha: 0.18) : AppColors.surface,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withValues(alpha: 0.4), width: 1.2),
+        border: Border.all(
+          color: color.withValues(alpha: highlight ? 1 : 0.4),
+          width: highlight ? 2 : 1.2,
+        ),
       ),
       child: Row(
         children: [

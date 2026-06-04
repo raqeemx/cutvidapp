@@ -6,6 +6,7 @@ import 'package:video_player/video_player.dart';
 import '../models/clip.dart';
 import '../utils/app_theme.dart';
 import '../utils/time_format.dart';
+import '../widgets/video_gesture_layer.dart';
 
 class ClipPlayerScreen extends StatefulWidget {
   final Clip clip;
@@ -67,6 +68,15 @@ class _ClipPlayerScreenState extends State<ClipPlayerScreen> {
     });
   }
 
+  /// Double-tap seek (±N seconds), clamped within the looping clip's duration.
+  void _seekRelative(int deltaMs) {
+    final c = _controller;
+    if (c == null) return;
+    final durMs = c.value.duration.inMilliseconds;
+    final target = (c.value.position.inMilliseconds + deltaMs).clamp(0, durMs);
+    c.seekTo(Duration(milliseconds: target));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -109,13 +119,20 @@ class _ClipPlayerScreenState extends State<ClipPlayerScreen> {
               aspectRatio: c.value.aspectRatio == 0
                   ? 16 / 9
                   : c.value.aspectRatio,
-              child: GestureDetector(
-                onTap: _togglePlay,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    VideoPlayer(c),
-                    AnimatedOpacity(
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  VideoPlayer(c),
+                  // Single tap = play/pause, double tap = ±5s.
+                  Positioned.fill(
+                    child: VideoGestureLayer(
+                      onTap: _togglePlay,
+                      onSeek: _seekRelative,
+                    ),
+                  ),
+                  // Visual-only play icon; must not swallow taps.
+                  IgnorePointer(
+                    child: AnimatedOpacity(
                       opacity: c.value.isPlaying ? 0 : 1,
                       duration: const Duration(milliseconds: 200),
                       child: Container(
@@ -131,8 +148,8 @@ class _ClipPlayerScreenState extends State<ClipPlayerScreen> {
                         ),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),
