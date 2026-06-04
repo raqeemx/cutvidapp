@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:video_player/video_player.dart';
@@ -60,6 +61,9 @@ class _PlayerScreenState extends State<PlayerScreen>
   Box? _settings;
   bool _showHint = false;
 
+  // Stable key for remembering this video's playback position.
+  String? _posKey;
+
   @override
   void initState() {
     super.initState();
@@ -78,9 +82,13 @@ class _PlayerScreenState extends State<PlayerScreen>
       await c.initialize();
       c.addListener(_onTick);
 
-      // Resume from where the user left off, if sensible.
+      // Resume from where the user left off, if sensible. The key is based on
+      // stable file identity (name + size + duration), not the path, so videos
+      // opened from outside the app (whose temp path changes each time) still
+      // resume correctly.
       final dur = c.value.duration.inMilliseconds;
-      final saved = PlaybackStore.getPosition(widget.videoPath);
+      _posKey = await _buildPosKey(dur);
+      final saved = PlaybackStore.getPosition(_posKey!);
       if (saved != null && saved > 2000 && saved < dur - 2000) {
         await c.seekTo(Duration(milliseconds: saved));
       }
@@ -109,10 +117,22 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
   }
 
+  /// A stable identity for the video that survives temp-path changes (external
+  /// opens copy the file to a new cache path each time).
+  Future<String> _buildPosKey(int durationMs) async {
+    try {
+      final size = await File(widget.videoPath).length();
+      return '${widget.videoName}|$size|$durationMs';
+    } catch (_) {
+      return widget.videoPath;
+    }
+  }
+
   void _savePosition() {
     final c = _controller;
-    if (c == null || !c.value.isInitialized) return;
-    PlaybackStore.setPosition(widget.videoPath, c.value.position.inMilliseconds);
+    final key = _posKey;
+    if (c == null || key == null || !c.value.isInitialized) return;
+    PlaybackStore.setPosition(key, c.value.position.inMilliseconds);
   }
 
   Future<void> _loadHint() async {
@@ -334,7 +354,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
     // Tactile confirmation that the save finished.
     HapticFeedback.mediumImpact();
-    _showSavedDialog(name.trim());
+    _showSavedDialog(name.trim(), p.basename(outPath));
   }
 
   Future<String?> _askClipName() async {
@@ -368,7 +388,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     );
   }
 
-  void _showSavedDialog(String name) {
+  void _showSavedDialog(String name, String fileName) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -376,12 +396,48 @@ class _PlayerScreenState extends State<PlayerScreen>
           children: const [
             Icon(Icons.check_circle_rounded, color: AppColors.accent2),
             SizedBox(width: 10),
-            Text('تم حفظ المقطع'),
+            Text('تم الحفظ بنجاح ✓'),
           ],
         ),
-        content: Text(
-          'تم حفظ "$name" في مكتبتك.\nيمكنك متابعة قص مقاطع أخرى من هذا الفيديو.',
-          style: const TextStyle(color: AppColors.textSecondary),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'تم حفظ المقطع في مكتبة التطبيق باسم:',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceLight,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.movie_rounded,
+                      color: AppColors.accent, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      fileName,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'يمكنك تشغيله أو تصديره إلى معرض الجهاز من تبويب «مقاطعي».',
+              style: TextStyle(color: AppColors.textSecondary, height: 1.5),
+            ),
+          ],
         ),
         actions: [
           TextButton(
