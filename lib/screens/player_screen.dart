@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
@@ -32,8 +31,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _ready = false;
   String? _error;
 
-  int? _startMs;
-  int? _endMs;
+  // The selection always has a valid range once the video is ready, so the
+  // draggable handles are the single way to define the clip — no separate
+  // "set start / set end" buttons are needed.
+  int _startMs = 0;
+  int _endMs = 0;
 
   // Preview mode: when active, playback auto-stops at _endMs.
   bool _previewMode = false;
@@ -42,10 +44,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   // Live progress (0..1) of the FFmpeg cut, used by the progress dialog.
   final ValueNotifier<double> _cutProgress = ValueNotifier<double>(0);
-
-  // Momentary highlight after marking a point (visual confirmation).
-  bool _startFlash = false;
-  bool _endFlash = false;
 
   // First-run guidance.
   Box? _settings;
@@ -66,6 +64,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (!mounted) return;
       setState(() {
         _controller = c;
+        // Start with the whole video selected; the user trims by dragging.
+        _startMs = 0;
+        _endMs = c.value.duration.inMilliseconds;
         _ready = true;
       });
     } catch (e) {
@@ -94,11 +95,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void _onTick() {
     final c = _controller;
     if (c == null) return;
-    if (_previewMode && _endMs != null) {
+    if (_previewMode) {
       final pos = c.value.position.inMilliseconds;
-      if (pos >= _endMs!) {
+      if (pos >= _endMs) {
         c.pause();
-        c.seekTo(Duration(milliseconds: _startMs ?? 0));
+        c.seekTo(Duration(milliseconds: _startMs));
         if (mounted) setState(() => _previewMode = false);
       }
     }
@@ -112,7 +113,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     super.dispose();
   }
 
-  int get _positionMs => _controller?.value.position.inMilliseconds ?? 0;
   int get _durationMs => _controller?.value.duration.inMilliseconds ?? 0;
 
   void _togglePlay() {
@@ -128,73 +128,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
   }
 
-  void _flash({required bool isStart}) {
-    setState(() {
-      if (isStart) {
-        _startFlash = true;
-      } else {
-        _endFlash = true;
-      }
-    });
-    Future.delayed(const Duration(milliseconds: 600), () {
-      if (!mounted) return;
-      setState(() {
-        if (isStart) {
-          _startFlash = false;
-        } else {
-          _endFlash = false;
-        }
-      });
-    });
-  }
-
-  void _setStart() {
-    final pos = _positionMs;
-    HapticFeedback.mediumImpact();
-    setState(() {
-      _startMs = pos;
-      // Keep end valid.
-      if (_endMs != null && _endMs! <= _startMs!) {
-        _endMs = null;
-      }
-    });
-    _flash(isStart: true);
-    _snack('تم ضبط البداية عند ${formatMs(pos)}');
-  }
-
-  void _setEnd() {
-    final pos = _positionMs;
-    if (_startMs == null) {
-      _snack('اضبط نقطة البداية أولاً.');
-      return;
-    }
-    if (pos <= _startMs!) {
-      _snack('يجب أن تكون النهاية بعد نقطة البداية.');
-      return;
-    }
-    HapticFeedback.mediumImpact();
-    setState(() => _endMs = pos);
-    _flash(isStart: false);
-    _snack('تم ضبط النهاية عند ${formatMs(pos)}');
-  }
-
   // ---- Live drag handlers from the timeline ----
 
   void _onStartDragged(int ms) {
     setState(() {
       _previewMode = false;
-      _startMs = ms;
-      if (_endMs != null && _endMs! <= _startMs!) _endMs = null;
+      _startMs = ms.clamp(0, _endMs - 300);
     });
-    _controller?.seekTo(Duration(milliseconds: ms));
+    _controller?.seekTo(Duration(milliseconds: _startMs));
   }
 
   void _onEndDragged(int ms) {
     setState(() {
       _previewMode = false;
-      _endMs = ms;
+      _endMs = ms.clamp(_startMs + 300, _durationMs);
     });
-    _controller?.seekTo(Duration(milliseconds: ms));
+    _controller?.seekTo(Duration(milliseconds: _endMs));
   }
 
   void _onSeek(int ms) {
@@ -205,23 +154,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Future<void> _previewClip() async {
     final c = _controller;
     if (c == null) return;
-    if (_startMs == null || _endMs == null) {
-      _snack('حدّد البداية والنهاية أولاً.');
-      return;
-    }
-    await c.seekTo(Duration(milliseconds: _startMs!));
+    await c.seekTo(Duration(milliseconds: _startMs));
     await c.play();
     setState(() => _previewMode = true);
   }
 
   String? _validateRange() {
-    if (_startMs == null || _endMs == null) {
-      return 'يجب تحديد البداية والنهاية قبل الحفظ.';
-    }
-    if (_endMs! <= _startMs!) {
+    if (_endMs <= _startMs) {
       return 'يجب أن يكون وقت النهاية بعد وقت البداية.';
     }
-    if ((_endMs! - _startMs!) < 300) {
+    if ((_endMs - _startMs) < 300) {
       return 'المقطع قصير جداً. اختر مدى أطول.';
     }
     return null;
@@ -248,8 +190,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     final outPath = await VideoCutter.cut(
       sourcePath: widget.videoPath,
-      startMs: _startMs!,
-      endMs: _endMs!,
+      startMs: _startMs,
+      endMs: _endMs,
       clipId: id,
       onProgress: (p) => _cutProgress.value = p,
     );
@@ -275,8 +217,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       filePath: outPath,
       sourcePath: widget.videoPath,
       sourceName: widget.videoName,
-      startMs: _startMs!,
-      endMs: _endMs!,
+      startMs: _startMs,
+      endMs: _endMs,
       thumbnailPath: thumb,
       createdAtMs: DateTime.now().millisecondsSinceEpoch,
     );
@@ -345,7 +287,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<String?> _askClipName() async {
     final controller = TextEditingController(
-      text: 'مقطع ${formatMs(_startMs!)}-${formatMs(_endMs!)}',
+      text: 'مقطع ${formatMs(_startMs)}-${formatMs(_endMs)}',
     );
     return showDialog<String>(
       context: context,
@@ -393,9 +335,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
+              // Reselect the whole video for the next cut.
               setState(() {
-                _startMs = null;
-                _endMs = null;
+                _startMs = 0;
+                _endMs = _durationMs;
               });
             },
             child: const Text('قص مقطع آخر'),
@@ -410,7 +353,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _editTimeManually({required bool isStart}) async {
-    final current = isStart ? (_startMs ?? 0) : (_endMs ?? _positionMs);
+    final current = isStart ? _startMs : _endMs;
     final result = await showDialog<int>(
       context: context,
       builder: (ctx) => _TimeEditorDialog(
@@ -422,14 +365,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (result == null) return;
     setState(() {
       if (isStart) {
-        _startMs = result;
-        if (_endMs != null && _endMs! <= _startMs!) _endMs = null;
+        _startMs = result.clamp(0, _endMs - 300 < 0 ? 0 : _endMs - 300);
       } else {
-        if (_startMs != null && result <= _startMs!) {
+        if (result <= _startMs) {
           _snack('يجب أن تكون النهاية بعد البداية.');
           return;
         }
-        _endMs = result;
+        _endMs = result.clamp(_startMs + 300, _durationMs);
       }
     });
   }
@@ -462,284 +404,297 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Widget _buildPlayer() {
-    final c = _controller!;
-    return SingleChildScrollView(
-      child: Column(
-        children: [
-          // Video preview
-          Container(
-            color: Colors.black,
-            width: double.infinity,
-            child: AspectRatio(
-              aspectRatio: c.value.aspectRatio == 0
-                  ? 16 / 9
-                  : c.value.aspectRatio,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  VideoPlayer(c),
-                  if (_previewMode)
-                    Positioned(
-                      top: 10,
-                      right: 10,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.accent,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Text(
-                          'معاينة',
-                          style: TextStyle(
-                            color: Colors.black,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ),
-                    ),
-                  // Center play overlay — rebuilds only on play-state changes.
-                  ValueListenableBuilder<VideoPlayerValue>(
-                    valueListenable: c,
-                    builder: (context, value, _) => GestureDetector(
-                      onTap: _togglePlay,
-                      child: AnimatedOpacity(
-                        opacity: value.isPlaying ? 0 : 1,
-                        duration: const Duration(milliseconds: 200),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.black54,
-                            borderRadius: BorderRadius.circular(50),
-                          ),
-                          padding: const EdgeInsets.all(14),
-                          child: const Icon(
-                            Icons.play_arrow_rounded,
-                            color: Colors.white,
-                            size: 44,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+    return Column(
+      children: [
+        // ===== Section 1: video preview =====
+        _buildPreview(),
 
-          // Scrub position + play controls — isolated rebuilds via the
-          // controller's ValueListenable instead of a screen-wide setState.
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
-            child: ValueListenableBuilder<VideoPlayerValue>(
-              valueListenable: c,
-              builder: (context, value, _) {
-                final posMs = value.position.inMilliseconds;
-                final durMs = value.duration.inMilliseconds;
-                return Row(
-                  children: [
-                    IconButton(
-                      onPressed: _togglePlay,
-                      icon: Icon(
-                        value.isPlaying
-                            ? Icons.pause_circle_filled_rounded
-                            : Icons.play_circle_fill_rounded,
-                        color: AppColors.accent,
-                        size: 40,
-                      ),
-                    ),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          SliderTheme(
-                            data: SliderTheme.of(context).copyWith(
-                              trackHeight: 3,
-                              thumbShape: const RoundSliderThumbShape(
-                                enabledThumbRadius: 7,
-                              ),
-                              activeTrackColor: AppColors.accent,
-                              inactiveTrackColor: AppColors.surfaceLight,
-                              thumbColor: AppColors.accent,
-                              overlayShape: const RoundSliderOverlayShape(
-                                overlayRadius: 14,
-                              ),
-                            ),
-                            child: Slider(
-                              value: posMs.clamp(0, durMs).toDouble(),
-                              max: durMs.toDouble().clamp(1, double.infinity),
-                              onChanged: (v) => _onSeek(v.toInt()),
-                            ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  formatMs(posMs),
-                                  style: const TextStyle(
-                                    color: AppColors.textSecondary,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                                Text(
-                                  formatMs(durMs),
-                                  style: const TextStyle(
-                                    color: AppColors.textSecondary,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ),
-
-          // Range timeline (draggable handles) — playhead follows position.
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: ValueListenableBuilder<VideoPlayerValue>(
-              valueListenable: c,
-              builder: (context, value, _) => RangeTimeline(
-                durationMs: value.duration.inMilliseconds,
-                positionMs: value.position.inMilliseconds,
-                startMs: _startMs,
-                endMs: _endMs,
-                onStartChanged: _onStartDragged,
-                onEndChanged: _onEndDragged,
-                onSeek: _onSeek,
-              ),
-            ),
-          ),
-
-          // Start / End cards
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: _TimeCard(
-                    label: 'البداية',
-                    value: _startMs == null
-                        ? 'اضغط ضبط البداية'
-                        : formatMs(_startMs!),
-                    isPlaceholder: _startMs == null,
-                    highlight: _startFlash,
-                    color: AppColors.accent2,
-                    onEdit: _startMs == null
-                        ? null
-                        : () => _editTimeManually(isStart: true),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _TimeCard(
-                    label: 'النهاية',
-                    value: _endMs == null
-                        ? 'اضغط ضبط النهاية'
-                        : formatMs(_endMs!),
-                    isPlaceholder: _endMs == null,
-                    highlight: _endFlash,
-                    color: AppColors.accent,
-                    onEdit: _endMs == null
-                        ? null
-                        : () => _editTimeManually(isStart: false),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          if (_startMs != null && _endMs != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 10),
-              child: Text(
-                'مدة المقطع: ${formatMs(_endMs! - _startMs!)}',
-                style: const TextStyle(
-                  color: AppColors.textPrimary,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-
-          // First-run guidance hint.
-          if (_showHint)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-              child: _HintBanner(onDismiss: _dismissHint),
-            ),
-
-          const SizedBox(height: 16),
-
-          // Action buttons
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+        // ===== Sections 2–4: scrollable editing area =====
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: _ActionButton(
-                        icon: Icons.flag_circle_rounded,
-                        label: 'ضبط البداية',
-                        color: AppColors.accent2,
-                        onTap: _setStart,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _ActionButton(
-                        icon: Icons.stop_circle_rounded,
-                        label: 'ضبط النهاية',
-                        color: AppColors.accent,
-                        onTap: _setEnd,
-                      ),
-                    ),
-                  ],
-                ),
+                _buildScrubBar(),
+                const SizedBox(height: 6),
+                _buildTimeline(),
                 const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _ActionButton(
-                        icon: Icons.visibility_rounded,
-                        label: 'معاينة المقطع',
-                        color: AppColors.surfaceLight,
-                        textColor: AppColors.textPrimary,
-                        onTap: _previewClip,
-                      ),
+                _buildStartEndCards(),
+                const SizedBox(height: 14),
+                _buildSummaryBar(),
+                if (_showHint) ...[
+                  const SizedBox(height: 14),
+                  _HintBanner(onDismiss: _dismissHint),
+                ],
+              ],
+            ),
+          ),
+        ),
+
+        // ===== Section 5: fixed bottom action bar =====
+        _buildBottomBar(),
+      ],
+    );
+  }
+
+  // ----- Section 1 -----
+  Widget _buildPreview() {
+    final c = _controller!;
+    return Container(
+      color: Colors.black,
+      width: double.infinity,
+      child: AspectRatio(
+        aspectRatio: c.value.aspectRatio == 0 ? 16 / 9 : c.value.aspectRatio,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            VideoPlayer(c),
+            if (_previewMode)
+              Positioned(
+                top: 10,
+                right: 10,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.accent,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Text(
+                    'معاينة',
+                    style: TextStyle(
+                      color: Colors.black,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 11,
                     ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _saving ? null : _saveClip,
-                    icon: _saving
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.black,
-                            ),
-                          )
-                        : const Icon(Icons.save_alt_rounded),
-                    label: Text(_saving ? 'جارٍ القص…' : 'حفظ المقطع'),
                   ),
                 ),
-                const SizedBox(height: 28),
-              ],
+              ),
+            // Center play/pause overlay — rebuilds only on play-state changes.
+            ValueListenableBuilder<VideoPlayerValue>(
+              valueListenable: c,
+              builder: (context, value, _) => GestureDetector(
+                onTap: _togglePlay,
+                child: AnimatedOpacity(
+                  opacity: value.isPlaying ? 0 : 1,
+                  duration: const Duration(milliseconds: 200),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      borderRadius: BorderRadius.circular(50),
+                    ),
+                    padding: const EdgeInsets.all(14),
+                    child: const Icon(
+                      Icons.play_arrow_rounded,
+                      color: Colors.white,
+                      size: 44,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ----- Playback scrub bar (play/pause + position) -----
+  Widget _buildScrubBar() {
+    final c = _controller!;
+    return ValueListenableBuilder<VideoPlayerValue>(
+      valueListenable: c,
+      builder: (context, value, _) {
+        final posMs = value.position.inMilliseconds;
+        final durMs = value.duration.inMilliseconds;
+        return Row(
+          children: [
+            IconButton(
+              onPressed: _togglePlay,
+              icon: Icon(
+                value.isPlaying
+                    ? Icons.pause_circle_filled_rounded
+                    : Icons.play_circle_fill_rounded,
+                color: AppColors.accent,
+                size: 38,
+              ),
+            ),
+            Expanded(
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 3,
+                  thumbShape: const RoundSliderThumbShape(
+                    enabledThumbRadius: 6,
+                  ),
+                  activeTrackColor: AppColors.accent,
+                  inactiveTrackColor: AppColors.surfaceLight,
+                  thumbColor: AppColors.accent,
+                  overlayShape: const RoundSliderOverlayShape(
+                    overlayRadius: 12,
+                  ),
+                ),
+                child: Slider(
+                  value: posMs.clamp(0, durMs).toDouble(),
+                  max: durMs.toDouble().clamp(1, double.infinity),
+                  onChanged: (v) => _onSeek(v.toInt()),
+                ),
+              ),
+            ),
+            Text(
+              '${formatMs(posMs)} / ${formatMs(durMs)}',
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 11.5,
+              ),
+            ),
+            const SizedBox(width: 4),
+          ],
+        );
+      },
+    );
+  }
+
+  // ----- Section 2: interactive timeline -----
+  Widget _buildTimeline() {
+    final c = _controller!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(bottom: 4, right: 2),
+          child: Text(
+            'اسحب المقبضين لتحديد المقطع',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+          ),
+        ),
+        ValueListenableBuilder<VideoPlayerValue>(
+          valueListenable: c,
+          builder: (context, value, _) => RangeTimeline(
+            durationMs: value.duration.inMilliseconds,
+            positionMs: value.position.inMilliseconds,
+            startMs: _startMs,
+            endMs: _endMs,
+            onStartChanged: _onStartDragged,
+            onEndChanged: _onEndDragged,
+            onSeek: _onSeek,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ----- Section 3: start / end cards -----
+  Widget _buildStartEndCards() {
+    return Row(
+      children: [
+        Expanded(
+          child: _TimeCard(
+            label: 'البداية',
+            value: formatMs(_startMs),
+            color: AppColors.accent2,
+            onEdit: () => _editTimeManually(isStart: true),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _TimeCard(
+            label: 'النهاية',
+            value: formatMs(_endMs),
+            color: AppColors.accent,
+            onEdit: () => _editTimeManually(isStart: false),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ----- Section 4: summary bar -----
+  Widget _buildSummaryBar() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            AppColors.accent2.withValues(alpha: 0.18),
+            AppColors.accent.withValues(alpha: 0.18),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.surfaceLight),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.content_cut_rounded, color: AppColors.accent),
+          const SizedBox(width: 10),
+          const Text(
+            'مدة المقطع الناتج',
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const Spacer(),
+          Text(
+            formatMs(_endMs - _startMs),
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 24,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ----- Section 5: fixed bottom action bar -----
+  Widget _buildBottomBar() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        border: Border(top: BorderSide(color: AppColors.surfaceLight)),
+      ),
+      child: Row(
+        children: [
+          // Secondary: preview
+          Expanded(
+            flex: 2,
+            child: OutlinedButton.icon(
+              onPressed: _saving ? null : _previewClip,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.textPrimary,
+                side: const BorderSide(color: AppColors.surfaceLight),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              icon: const Icon(Icons.visibility_rounded, size: 20),
+              label: const Text('معاينة'),
+            ),
+          ),
+          const SizedBox(width: 12),
+          // Primary: save (wide)
+          Expanded(
+            flex: 3,
+            child: ElevatedButton.icon(
+              onPressed: _saving ? null : _saveClip,
+              icon: _saving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.black,
+                      ),
+                    )
+                  : const Icon(Icons.save_alt_rounded),
+              label: Text(_saving ? 'جارٍ القص…' : 'حفظ المقطع'),
             ),
           ),
         ],
@@ -771,8 +726,8 @@ class _HintBanner extends StatelessWidget {
           const SizedBox(width: 10),
           const Expanded(
             child: Text(
-              'حرّك الفيديو إلى اللحظة المطلوبة ثم اضغط «ضبط البداية»، وكرّر '
-              'للنهاية. يمكنك أيضاً سحب المقابض على الخط الزمني لضبط دقيق.',
+              'الفيديو كامل محدّد الآن. اسحب المقبض التركوازي للبداية والبرتقالي '
+              'للنهاية لاقتطاع الجزء المطلوب، ثم اضغط «حفظ المقطع».',
               style: TextStyle(
                 color: AppColors.textPrimary,
                 fontSize: 12.5,
@@ -797,29 +752,21 @@ class _TimeCard extends StatelessWidget {
   final String value;
   final Color color;
   final VoidCallback? onEdit;
-  final bool isPlaceholder;
-  final bool highlight;
   const _TimeCard({
     required this.label,
     required this.value,
     required this.color,
     this.onEdit,
-    this.isPlaceholder = false,
-    this.highlight = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 250),
+    return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: highlight ? color.withValues(alpha: 0.18) : AppColors.surface,
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: color.withValues(alpha: highlight ? 1 : 0.4),
-          width: highlight ? 2 : 1.2,
-        ),
+        border: Border.all(color: color.withValues(alpha: 0.4), width: 1.2),
       ),
       child: Row(
         children: [
@@ -845,14 +792,10 @@ class _TimeCard extends StatelessWidget {
                   value,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: isPlaceholder
-                        ? AppColors.textSecondary
-                        : AppColors.textPrimary,
-                    fontSize: isPlaceholder ? 12.5 : 18,
-                    fontWeight: isPlaceholder
-                        ? FontWeight.w600
-                        : FontWeight.w800,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ],
@@ -864,56 +807,12 @@ class _TimeCard extends StatelessWidget {
               constraints: const BoxConstraints(),
               onPressed: onEdit,
               icon: const Icon(
-                Icons.edit_rounded,
-                size: 18,
+                Icons.tune_rounded,
+                size: 20,
                 color: AppColors.textSecondary,
               ),
             ),
         ],
-      ),
-    );
-  }
-}
-
-class _ActionButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  final Color textColor;
-  final VoidCallback onTap;
-  const _ActionButton({
-    required this.icon,
-    required this.label,
-    required this.color,
-    required this.onTap,
-    this.textColor = Colors.black,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: color,
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          child: Column(
-            children: [
-              Icon(icon, color: textColor, size: 26),
-              const SizedBox(height: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  color: textColor,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
