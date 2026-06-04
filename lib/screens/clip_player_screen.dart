@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
 import '../models/clip.dart';
+import '../services/playback_store.dart';
 import '../utils/app_theme.dart';
 import '../utils/time_format.dart';
 import '../widgets/video_gesture_layer.dart';
@@ -16,14 +17,18 @@ class ClipPlayerScreen extends StatefulWidget {
   State<ClipPlayerScreen> createState() => _ClipPlayerScreenState();
 }
 
-class _ClipPlayerScreenState extends State<ClipPlayerScreen> {
+class _ClipPlayerScreenState extends State<ClipPlayerScreen>
+    with WidgetsBindingObserver {
   VideoPlayerController? _controller;
   bool _ready = false;
   String? _error;
 
+  String get _posKey => 'clip_${widget.clip.id}';
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _init();
   }
 
@@ -36,12 +41,24 @@ class _ClipPlayerScreenState extends State<ClipPlayerScreen> {
         );
         return;
       }
-      final c = VideoPlayerController.file(file);
+      final c = VideoPlayerController.file(
+        file,
+        // Keep audio playing when the app is backgrounded / switched away.
+        videoPlayerOptions: VideoPlayerOptions(allowBackgroundPlayback: true),
+      );
       await c.initialize();
       c.setLooping(true);
       c.addListener(() {
         if (mounted) setState(() {});
       });
+
+      // Resume from where the user left off, if sensible.
+      final dur = c.value.duration.inMilliseconds;
+      final saved = PlaybackStore.getPosition(_posKey);
+      if (saved != null && saved > 2000 && saved < dur - 2000) {
+        await c.seekTo(Duration(milliseconds: saved));
+      }
+
       await c.play();
       if (!mounted) return;
       setState(() {
@@ -55,7 +72,24 @@ class _ClipPlayerScreenState extends State<ClipPlayerScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.inactive) {
+      _savePosition();
+    }
+  }
+
+  void _savePosition() {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized) return;
+    PlaybackStore.setPosition(_posKey, c.value.position.inMilliseconds);
+  }
+
+  @override
   void dispose() {
+    _savePosition();
+    WidgetsBinding.instance.removeObserver(this);
     _controller?.dispose();
     super.dispose();
   }

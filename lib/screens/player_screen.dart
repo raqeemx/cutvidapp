@@ -10,6 +10,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/clip.dart';
 import '../services/clip_repository.dart';
+import '../services/playback_store.dart';
 import '../services/video_cutter.dart';
 import '../utils/app_theme.dart';
 import '../utils/time_format.dart';
@@ -31,7 +32,8 @@ class PlayerScreen extends StatefulWidget {
   State<PlayerScreen> createState() => _PlayerScreenState();
 }
 
-class _PlayerScreenState extends State<PlayerScreen> {
+class _PlayerScreenState extends State<PlayerScreen>
+    with WidgetsBindingObserver {
   VideoPlayerController? _controller;
   bool _ready = false;
   String? _error;
@@ -61,27 +63,56 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _init();
     _loadHint();
   }
 
   Future<void> _init() async {
     try {
-      final c = VideoPlayerController.file(File(widget.videoPath));
+      final c = VideoPlayerController.file(
+        File(widget.videoPath),
+        // Keep audio playing when the app is backgrounded / switched away.
+        videoPlayerOptions: VideoPlayerOptions(allowBackgroundPlayback: true),
+      );
       await c.initialize();
       c.addListener(_onTick);
+
+      // Resume from where the user left off, if sensible.
+      final dur = c.value.duration.inMilliseconds;
+      final saved = PlaybackStore.getPosition(widget.videoPath);
+      if (saved != null && saved > 2000 && saved < dur - 2000) {
+        await c.seekTo(Duration(milliseconds: saved));
+      }
+
       if (!mounted) return;
       setState(() {
         _controller = c;
         // Start with the whole video selected; the user trims by dragging.
         _startMs = 0;
-        _endMs = c.value.duration.inMilliseconds;
+        _endMs = dur;
         _ready = true;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = 'تعذّر فتح هذا الفيديو.\n$e');
     }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Persist the position when leaving the app (audio keeps playing).
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.inactive) {
+      _savePosition();
+    }
+  }
+
+  void _savePosition() {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized) return;
+    PlaybackStore.setPosition(widget.videoPath, c.value.position.inMilliseconds);
   }
 
   Future<void> _loadHint() async {
@@ -116,6 +147,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   void dispose() {
+    _savePosition();
+    WidgetsBinding.instance.removeObserver(this);
     WakelockPlus.disable();
     _controller?.removeListener(_onTick);
     _controller?.dispose();
@@ -262,6 +295,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         startMs: _startMs,
         endMs: _endMs,
         clipId: id,
+        name: name.trim(),
         onProgress: (p) => _cutProgress.value = p,
       );
     } finally {
@@ -505,15 +539,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
   // ----- Section 1 -----
   Widget _buildPreview() {
     final c = _controller!;
-    return Container(
-      color: Colors.black,
-      width: double.infinity,
-      child: AspectRatio(
-        aspectRatio: c.value.aspectRatio == 0 ? 16 / 9 : c.value.aspectRatio,
-        child: Stack(
+    final ar = c.value.aspectRatio == 0 ? 16 / 9 : c.value.aspectRatio;
+    // Bound the preview height so tall/portrait videos never push the cut
+    // controls off-screen; the video is shown "contain" with letterboxing.
+    final maxH = MediaQuery.of(context).size.height * 0.42;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final naturalH = constraints.maxWidth / ar;
+        final boxH = naturalH > maxH ? maxH : naturalH;
+        return Container(
+          color: Colors.black,
+          width: double.infinity,
+          height: boxH,
           alignment: Alignment.center,
-          children: [
-            VideoPlayer(c),
+          child: AspectRatio(
+            aspectRatio: ar,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                VideoPlayer(c),
             // Gesture layer: single tap = play/pause, double tap = ±5s.
             // Sits above the video and below the (interactive) fullscreen btn.
             Positioned.fill(
@@ -587,9 +631,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ),
               ),
             ),
-          ],
-        ),
-      ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 

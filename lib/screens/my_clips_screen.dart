@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:saver_gallery/saver_gallery.dart';
-import 'package:path/path.dart' as p;
 
 import '../models/clip.dart';
 import '../services/clip_repository.dart';
@@ -293,9 +292,14 @@ class _ClipCard extends StatelessWidget {
       return;
     }
     try {
+      // Save to the gallery using the user's clip name, not a random id.
+      final safeName = clip.name.trim().replaceAll(
+        RegExp(r'[\\/:*?"<>|\x00-\x1F]'),
+        '_',
+      );
       final result = await SaverGallery.saveFile(
         filePath: clip.filePath,
-        fileName: '${p.basenameWithoutExtension(clip.filePath)}.mp4',
+        fileName: '${safeName.isEmpty ? 'clip' : safeName}.mp4',
         androidRelativePath: 'Movies/ClipMaster',
         skipIfExists: false,
       );

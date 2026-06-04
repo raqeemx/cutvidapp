@@ -34,6 +34,30 @@ class VideoCutter {
     return seconds.toStringAsFixed(3);
   }
 
+  /// Turns a user-entered clip name into a safe file name (no extension),
+  /// stripping characters that are illegal in file names. Arabic is preserved.
+  static String _safeFileName(String name) {
+    var s = name.trim().replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1F]'), '_');
+    s = s.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (s.isEmpty) s = 'clip';
+    // Keep it within a reasonable length for the filesystem.
+    if (s.length > 80) s = s.substring(0, 80).trim();
+    return s;
+  }
+
+  /// Builds a unique output path in [dir] based on the user's [name],
+  /// appending " (n)" only if a file with that name already exists.
+  static String _uniqueOutputPath(Directory dir, String name) {
+    final base = _safeFileName(name);
+    var candidate = p.join(dir.path, '$base.mp4');
+    var i = 1;
+    while (File(candidate).existsSync()) {
+      candidate = p.join(dir.path, '$base ($i).mp4');
+      i++;
+    }
+    return candidate;
+  }
+
   /// Cuts [sourcePath] from [startMs] to [endMs] and writes a new mp4 file.
   /// Returns the output file path on success, or null on failure.
   ///
@@ -46,10 +70,14 @@ class VideoCutter {
     required int startMs,
     required int endMs,
     required String clipId,
+    String? name,
     void Function(double progress)? onProgress,
   }) async {
     final dir = await clipsDirectory();
-    final outPath = p.join(dir.path, 'clip_$clipId.mp4');
+    // Name the saved file after what the user typed (not a random id).
+    final outPath = (name != null && name.trim().isNotEmpty)
+        ? _uniqueOutputPath(dir, name)
+        : p.join(dir.path, 'clip_$clipId.mp4');
 
     final start = _ffmpegTime(startMs);
     final clipDurationMs = (endMs - startMs).toDouble();
