@@ -9,6 +9,7 @@ class AppColors {
   static const Color textPrimary = Color(0xFFF5F5F7);
   static const Color textSecondary = Color(0xFF9AA0AB);
   static const Color danger = Color(0xFFFF5A5A);
+  static const Color disabled = Color(0xFF3A3D45); // disabled controls
 }
 
 ThemeData buildAppTheme() {
@@ -25,7 +26,7 @@ ThemeData buildAppTheme() {
     useMaterial3: true,
     colorScheme: scheme,
     scaffoldBackgroundColor: AppColors.background,
-    fontFamily: 'Roboto',
+    fontFamily: 'Cairo',
     appBarTheme: const AppBarTheme(
       backgroundColor: AppColors.background,
       elevation: 0,
@@ -46,7 +47,17 @@ ThemeData buildAppTheme() {
       style: ElevatedButton.styleFrom(
         backgroundColor: AppColors.accent,
         foregroundColor: Colors.black,
+        disabledBackgroundColor: AppColors.disabled,
+        disabledForegroundColor: AppColors.textSecondary,
         elevation: 0,
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        disabledForegroundColor: AppColors.disabled,
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),

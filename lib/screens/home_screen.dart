@@ -125,7 +125,7 @@ class _PickerTab extends StatelessWidget {
                   ),
                   const SizedBox(height: 28),
                   const Text(
-                    'اقتطع لحظاتك المفضّلة',
+                    'اقصص أفضل لحظاتك',
                     style: TextStyle(
                       color: AppColors.textPrimary,
                       fontSize: 22,
@@ -135,8 +135,8 @@ class _PickerTab extends StatelessWidget {
                   ),
                   const SizedBox(height: 10),
                   const Text(
-                    'اختر فيديو من جهازك، شغّله، حدّد البداية والنهاية، ثم احفظ '
-                    'المقطع — كل ذلك دون اتصال بالإنترنت تماماً.',
+                    'اختر فيديو من جهازك، شغّله، حدّد البداية والنهاية، واحفظ '
+                    'المقطع — كل شيء يعمل بدون إنترنت ودون رفع أي ملف.',
                     style: TextStyle(
                       color: AppColors.textSecondary,
                       fontSize: 14,
@@ -150,7 +150,7 @@ class _PickerTab extends StatelessWidget {
                     child: ElevatedButton.icon(
                       onPressed: onPick,
                       icon: const Icon(Icons.folder_open_rounded),
-                      label: const Text('اختر فيديو من الجهاز'),
+                      label: const Text('اختر فيديو من جهازك'),
                     ),
                   ),
                   const SizedBox(height: 16),

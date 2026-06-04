@@ -1,10 +1,12 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:video_player/video_player.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/clip.dart';
 import '../services/clip_repository.dart';
@@ -109,6 +111,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   void dispose() {
+    WakelockPlus.disable();
     _controller?.removeListener(_onTick);
     _controller?.dispose();
     _cutProgress.dispose();
@@ -163,10 +166,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   String? _validateRange() {
     if (_endMs <= _startMs) {
-      return 'يجب أن يكون وقت النهاية بعد وقت البداية.';
+      return 'نقطة النهاية يجب أن تكون بعد البداية.';
     }
     if ((_endMs - _startMs) < 300) {
-      return 'المقطع قصير جداً. اختر مدى أطول.';
+      return 'المقطع قصير جداً، اختر مدى أطول.';
     }
     return null;
   }
@@ -190,13 +193,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     final id = const Uuid().v4();
 
-    final outPath = await VideoCutter.cut(
-      sourcePath: widget.videoPath,
-      startMs: _startMs,
-      endMs: _endMs,
-      clipId: id,
-      onProgress: (p) => _cutProgress.value = p,
-    );
+    // Keep the screen awake during the (possibly long) encode.
+    await WakelockPlus.enable();
+    String? outPath;
+    try {
+      outPath = await VideoCutter.cut(
+        sourcePath: widget.videoPath,
+        startMs: _startMs,
+        endMs: _endMs,
+        clipId: id,
+        onProgress: (p) => _cutProgress.value = p,
+      );
+    } finally {
+      await WakelockPlus.disable();
+    }
 
     if (!mounted) return;
 
@@ -228,6 +238,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (!mounted) return;
     setState(() => _saving = false);
 
+    // Tactile confirmation that the save finished.
+    HapticFeedback.mediumImpact();
     _showSavedDialog(name.trim());
   }
 
@@ -314,7 +326,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _startMs = result.clamp(0, _endMs - 300 < 0 ? 0 : _endMs - 300);
       } else {
         if (result <= _startMs) {
-          _snack('يجب أن تكون النهاية بعد البداية.');
+          _snack('نقطة النهاية يجب أن تكون بعد البداية.');
           return;
         }
         _endMs = result.clamp(_startMs + 300, _durationMs);
@@ -488,8 +500,36 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ),
               ),
             ),
+            // Fullscreen review button (48dp touch target).
+            Positioned(
+              bottom: 4,
+              left: 4,
+              child: IconButton(
+                tooltip: 'ملء الشاشة',
+                onPressed: _openFullscreen,
+                icon: const Icon(
+                  Icons.fullscreen_rounded,
+                  color: Colors.white,
+                  size: 26,
+                ),
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.black45,
+                ),
+              ),
+            ),
           ],
         ),
+      ),
+    );
+  }
+
+  Future<void> _openFullscreen() async {
+    final c = _controller;
+    if (c == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _FullscreenPlayer(controller: c),
+        fullscreenDialog: true,
       ),
     );
   }
@@ -737,6 +777,100 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
 // ---- small widgets ----
 
+/// Full-screen video for detailed review. Reuses the existing controller and
+/// allows landscape rotation; restores portrait on exit.
+class _FullscreenPlayer extends StatefulWidget {
+  final VideoPlayerController controller;
+  const _FullscreenPlayer({required this.controller});
+
+  @override
+  State<_FullscreenPlayer> createState() => _FullscreenPlayerState();
+}
+
+class _FullscreenPlayerState extends State<_FullscreenPlayer> {
+  @override
+  void initState() {
+    super.initState();
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+  }
+
+  @override
+  void dispose() {
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.controller;
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        alignment: Alignment.center,
+        children: [
+          Center(
+            child: AspectRatio(
+              aspectRatio: c.value.aspectRatio == 0 ? 16 / 9 : c.value.aspectRatio,
+              child: GestureDetector(
+                onTap: () {
+                  c.value.isPlaying ? c.pause() : c.play();
+                },
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    VideoPlayer(c),
+                    ValueListenableBuilder<VideoPlayerValue>(
+                      valueListenable: c,
+                      builder: (context, value, _) => AnimatedOpacity(
+                        opacity: value.isPlaying ? 0 : 1,
+                        duration: const Duration(milliseconds: 200),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.black54,
+                            borderRadius: BorderRadius.circular(50),
+                          ),
+                          padding: const EdgeInsets.all(14),
+                          child: const Icon(
+                            Icons.play_arrow_rounded,
+                            color: Colors.white,
+                            size: 48,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 8,
+            right: 8,
+            child: SafeArea(
+              child: IconButton(
+                tooltip: 'إغلاق',
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(
+                  Icons.fullscreen_exit_rounded,
+                  color: Colors.white,
+                  size: 28,
+                ),
+                style: IconButton.styleFrom(backgroundColor: Colors.black45),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _HintBanner extends StatelessWidget {
   final VoidCallback onDismiss;
   const _HintBanner({required this.onDismiss});
@@ -852,8 +986,8 @@ class _TimeCard extends StatelessWidget {
           ),
           if (onEdit != null)
             IconButton(
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
+              tooltip: 'تعديل دقيق',
+              constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
               onPressed: onEdit,
               icon: const Icon(
                 Icons.tune_rounded,
