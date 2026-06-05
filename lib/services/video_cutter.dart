@@ -45,6 +45,17 @@ class VideoCutter {
     return s;
   }
 
+  /// Public helper: a unique path inside the clips library for a new clip
+  /// named [name], with the correct extension for audio/video. Reused by the
+  /// merge feature so merged output is saved exactly like cut clips.
+  static Future<String> uniqueClipPath(
+    String name, {
+    required bool isAudio,
+  }) async {
+    final dir = await clipsDirectory();
+    return _uniqueOutputPath(dir, name, isAudio ? 'm4a' : 'mp4');
+  }
+
   /// Builds a unique output path in [dir] based on the user's [name] and
   /// [ext] (e.g. "mp4" or "m4a"), appending " (n)" only on a name clash.
   static String _uniqueOutputPath(Directory dir, String name, String ext) {

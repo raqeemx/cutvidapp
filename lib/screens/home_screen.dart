@@ -5,6 +5,7 @@ import '../services/permission_service.dart';
 import '../utils/app_theme.dart';
 import 'player_screen.dart';
 import 'my_clips_screen.dart';
+import 'merge_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -120,7 +121,18 @@ class _HomeScreenState extends State<HomeScreen> {
                 style: TextStyle(fontWeight: FontWeight.w700),
               ),
             )
-          : null,
+          : FloatingActionButton.extended(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const MergeScreen()),
+              ),
+              backgroundColor: AppColors.accent2,
+              foregroundColor: Colors.black,
+              icon: const Icon(Icons.merge_rounded),
+              label: const Text(
+                'دمج مقاطع',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _index,
         onTap: (i) => setState(() => _index = i),
