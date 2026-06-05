@@ -6,6 +6,7 @@ import '../utils/app_theme.dart';
 import 'player_screen.dart';
 import 'my_clips_screen.dart';
 import 'merge_screen.dart';
+import 'crop_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -94,6 +95,53 @@ class _HomeScreenState extends State<HomeScreen> {
     await _pickMedia(audio: choice);
   }
 
+  /// Tools available from the "My Clips" tab: merge and crop.
+  void _showToolsSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(Icons.merge_rounded, color: AppColors.accent),
+              title: const Text('دمج مقاطع',
+                  style: TextStyle(color: AppColors.textPrimary)),
+              subtitle: const Text('اجمع عدة مقاطع في مقطع واحد',
+                  style: TextStyle(color: AppColors.textSecondary)),
+              onTap: () {
+                Navigator.pop(ctx);
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const MergeScreen()),
+                );
+              },
+            ),
+            ListTile(
+              leading:
+                  const Icon(Icons.crop_rounded, color: AppColors.accent2),
+              title: const Text('اقتصاص فيديو',
+                  style: TextStyle(color: AppColors.textPrimary)),
+              subtitle: const Text('اقتصاص الأبعاد وتدوير الفيديو',
+                  style: TextStyle(color: AppColors.textSecondary)),
+              onTap: () {
+                Navigator.pop(ctx);
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const CropScreen()),
+                );
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showSnack(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
@@ -122,14 +170,12 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             )
           : FloatingActionButton.extended(
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const MergeScreen()),
-              ),
+              onPressed: _showToolsSheet,
               backgroundColor: AppColors.accent2,
               foregroundColor: Colors.black,
-              icon: const Icon(Icons.merge_rounded),
+              icon: const Icon(Icons.auto_awesome_rounded),
               label: const Text(
-                'دمج مقاطع',
+                'أدوات',
                 style: TextStyle(fontWeight: FontWeight.w700),
               ),
             ),
