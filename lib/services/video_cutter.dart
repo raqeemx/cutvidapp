@@ -45,14 +45,14 @@ class VideoCutter {
     return s;
   }
 
-  /// Builds a unique output path in [dir] based on the user's [name],
-  /// appending " (n)" only if a file with that name already exists.
-  static String _uniqueOutputPath(Directory dir, String name) {
+  /// Builds a unique output path in [dir] based on the user's [name] and
+  /// [ext] (e.g. "mp4" or "m4a"), appending " (n)" only on a name clash.
+  static String _uniqueOutputPath(Directory dir, String name, String ext) {
     final base = _safeFileName(name);
-    var candidate = p.join(dir.path, '$base.mp4');
+    var candidate = p.join(dir.path, '$base.$ext');
     var i = 1;
     while (File(candidate).existsSync()) {
-      candidate = p.join(dir.path, '$base ($i).mp4');
+      candidate = p.join(dir.path, '$base ($i).$ext');
       i++;
     }
     return candidate;
@@ -71,22 +71,28 @@ class VideoCutter {
     required int endMs,
     required String clipId,
     String? name,
+    bool isAudio = false,
     void Function(double progress)? onProgress,
   }) async {
     final dir = await clipsDirectory();
+    // Audio clips are written as .m4a (AAC), video clips as .mp4.
+    final ext = isAudio ? 'm4a' : 'mp4';
     // Name the saved file after what the user typed (not a random id).
     final outPath = (name != null && name.trim().isNotEmpty)
-        ? _uniqueOutputPath(dir, name)
-        : p.join(dir.path, 'clip_$clipId.mp4');
+        ? _uniqueOutputPath(dir, name, ext)
+        : p.join(dir.path, 'clip_$clipId.$ext');
 
     final start = _ffmpegTime(startMs);
     final clipDurationMs = (endMs - startMs).toDouble();
     final duration = _ffmpegTime(endMs - startMs);
 
-    // -ss after -i for accurate seeking, re-encode for frame accuracy.
-    final cmd =
-        "-y -i '$sourcePath' -ss $start -t $duration "
-        "-c:v mpeg4 -q:v 3 -c:a aac -b:a 128k '$outPath'";
+    // -ss after -i for accurate seeking. Audio: drop the video stream (-vn);
+    // video: re-encode for frame accuracy.
+    final cmd = isAudio
+        ? "-y -i '$sourcePath' -ss $start -t $duration "
+              "-vn -c:a aac -b:a 192k '$outPath'"
+        : "-y -i '$sourcePath' -ss $start -t $duration "
+              "-c:v mpeg4 -q:v 3 -c:a aac -b:a 128k '$outPath'";
 
     final completer = Completer<String?>();
 

@@ -9,6 +9,7 @@ import '../models/clip.dart';
 import '../services/clip_repository.dart';
 import '../services/permission_service.dart';
 import '../utils/app_theme.dart';
+import '../utils/media_type.dart';
 import '../utils/time_format.dart';
 import 'clip_player_screen.dart';
 
@@ -292,22 +293,27 @@ class _ClipCard extends StatelessWidget {
       return;
     }
     try {
-      // Save to the gallery using the user's clip name, not a random id.
+      // Save using the user's clip name (not a random id) and the right
+      // media folder/extension for audio vs. video.
       final safeName = clip.name.trim().replaceAll(
         RegExp(r'[\\/:*?"<>|\x00-\x1F]'),
         '_',
       );
+      final isAudio = clip.isAudio;
+      final ext = fileExtension(clip.filePath);
+      final relPath = isAudio ? 'Music/ClipMaster' : 'Movies/ClipMaster';
       final result = await SaverGallery.saveFile(
         filePath: clip.filePath,
-        fileName: '${safeName.isEmpty ? 'clip' : safeName}.mp4',
-        androidRelativePath: 'Movies/ClipMaster',
+        fileName: '${safeName.isEmpty ? 'clip' : safeName}'
+            '${ext.isEmpty ? (isAudio ? '.m4a' : '.mp4') : ext}',
+        androidRelativePath: relPath,
         skipIfExists: false,
       );
       if (!context.mounted) return;
       if (result.isSuccess) {
-        _snack(context, 'تم الحفظ في المعرض (Movies/ClipMaster)');
+        _snack(context, 'تم الحفظ على الجهاز ($relPath)');
       } else {
-        _snack(context, 'تعذّر الحفظ في المعرض.');
+        _snack(context, 'تعذّر الحفظ على الجهاز.');
       }
     } catch (e) {
       if (context.mounted) _snack(context, 'فشل الحفظ: $e');
@@ -336,6 +342,13 @@ class _ClipCard extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: Colors.black,
                       borderRadius: BorderRadius.circular(10),
+                      gradient: (!hasThumb && clip.isAudio)
+                          ? const LinearGradient(
+                              colors: [AppColors.accent2, AppColors.accent],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            )
+                          : null,
                       image: hasThumb
                           ? DecorationImage(
                               image: FileImage(File(clip.thumbnailPath)),
@@ -350,8 +363,10 @@ class _ClipCard extends StatelessWidget {
                           shape: BoxShape.circle,
                         ),
                         padding: const EdgeInsets.all(6),
-                        child: const Icon(
-                          Icons.play_arrow_rounded,
+                        child: Icon(
+                          clip.isAudio
+                              ? Icons.music_note_rounded
+                              : Icons.play_arrow_rounded,
                           color: Colors.white,
                           size: 24,
                         ),

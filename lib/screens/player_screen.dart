@@ -23,10 +23,16 @@ enum _ScreenMenu { resetSelection, showHint }
 class PlayerScreen extends StatefulWidget {
   final String videoPath;
   final String videoName;
+
+  /// Whether the source is an audio file (shows an audio cover instead of a
+  /// video surface, and saves an audio-only clip).
+  final bool isAudio;
+
   const PlayerScreen({
     super.key,
     required this.videoPath,
     required this.videoName,
+    this.isAudio = false,
   });
 
   @override
@@ -316,6 +322,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         endMs: _endMs,
         clipId: id,
         name: name.trim(),
+        isAudio: widget.isAudio,
         onProgress: (p) => _cutProgress.value = p,
       );
     } finally {
@@ -330,10 +337,13 @@ class _PlayerScreenState extends State<PlayerScreen>
       return;
     }
 
-    final thumb = await VideoCutter.generateThumbnail(
-      videoPath: outPath,
-      positionMs: 0,
-    );
+    // Audio clips have no frames to thumbnail.
+    final thumb = widget.isAudio
+        ? ''
+        : await VideoCutter.generateThumbnail(
+            videoPath: outPath,
+            positionMs: 0,
+          );
 
     final clip = Clip(
       id: id,
@@ -595,6 +605,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   // ----- Section 1 -----
   Widget _buildPreview() {
     final c = _controller!;
+    if (widget.isAudio) return _buildAudioPreview();
     final ar = c.value.aspectRatio == 0 ? 16 / 9 : c.value.aspectRatio;
     // Bound the preview height so tall/portrait videos never push the cut
     // controls off-screen; the video is shown "contain" with letterboxing.
@@ -692,6 +703,127 @@ class _PlayerScreenState extends State<PlayerScreen>
           ),
         );
       },
+    );
+  }
+
+  /// Audio cover panel: no video surface, but the same tap/double-tap gestures
+  /// and play overlay so cutting audio feels identical to cutting video.
+  Widget _buildAudioPreview() {
+    final c = _controller!;
+    final h = (MediaQuery.of(context).size.height * 0.26).clamp(170.0, 260.0);
+    return Container(
+      width: double.infinity,
+      height: h,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Color(0xFF1A1C22), Color(0xFF0E0F13)],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 92,
+                height: 92,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: const LinearGradient(
+                    colors: [AppColors.accent2, AppColors.accent],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.accent.withValues(alpha: 0.35),
+                      blurRadius: 24,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.music_note_rounded,
+                  color: Colors.black,
+                  size: 48,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(
+                  widget.videoName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          // Gestures (tap = play/pause, double tap = ±5s).
+          Positioned.fill(
+            child: VideoGestureLayer(
+              onTap: _togglePlay,
+              onSeek: _seekRelative,
+            ),
+          ),
+          if (_previewMode)
+            Positioned(
+              top: 10,
+              right: 10,
+              child: IgnorePointer(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.accent,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Text(
+                    'معاينة',
+                    style: TextStyle(
+                      color: Colors.black,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          // Play/pause overlay (visual only).
+          IgnorePointer(
+            child: ValueListenableBuilder<VideoPlayerValue>(
+              valueListenable: c,
+              builder: (context, value, _) => AnimatedOpacity(
+                opacity: value.isPlaying ? 0 : 1,
+                duration: const Duration(milliseconds: 200),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(50),
+                  ),
+                  padding: const EdgeInsets.all(12),
+                  child: const Icon(
+                    Icons.play_arrow_rounded,
+                    color: Colors.white,
+                    size: 40,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

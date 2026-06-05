@@ -156,7 +156,10 @@ class _ClipPlayerScreenState extends State<ClipPlayerScreen>
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                  VideoPlayer(c),
+                  if (widget.clip.isAudio)
+                    const _AudioCover()
+                  else
+                    VideoPlayer(c),
                   // Single tap = play/pause, double tap = ±5s.
                   Positioned.fill(
                     child: VideoGestureLayer(
@@ -239,8 +242,10 @@ class _ClipPlayerScreenState extends State<ClipPlayerScreen>
             ),
             child: Row(
               children: [
-                const Icon(
-                  Icons.movie_outlined,
+                Icon(
+                  widget.clip.isAudio
+                      ? Icons.audiotrack_outlined
+                      : Icons.movie_outlined,
                   size: 18,
                   color: AppColors.accent,
                 ),
@@ -250,7 +255,7 @@ class _ClipPlayerScreenState extends State<ClipPlayerScreen>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'الفيديو الأصلي',
+                        'المصدر الأصلي',
                         style: TextStyle(
                           color: AppColors.textSecondary,
                           fontSize: 11,
@@ -280,6 +285,50 @@ class _ClipPlayerScreenState extends State<ClipPlayerScreen>
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Cover shown in place of the video surface when playing an audio clip.
+class _AudioCover extends StatelessWidget {
+  const _AudioCover();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Color(0xFF1A1C22), Color(0xFF0E0F13)],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+      ),
+      child: Center(
+        child: Container(
+          width: 96,
+          height: 96,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: const LinearGradient(
+              colors: [AppColors.accent2, AppColors.accent],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.accent.withValues(alpha: 0.35),
+                blurRadius: 24,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: const Icon(
+            Icons.music_note_rounded,
+            color: Colors.black,
+            size: 50,
+          ),
+        ),
+      ),
     );
   }
 }

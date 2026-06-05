@@ -16,16 +16,22 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _index = 0;
 
-  Future<void> _pickVideo() async {
-    final granted = await PermissionService.requestVideoAccess();
+  Future<void> _pickMedia({required bool audio}) async {
+    final granted = audio
+        ? await PermissionService.requestAudioAccess()
+        : await PermissionService.requestVideoAccess();
     if (!mounted) return;
     if (!granted) {
-      _showSnack('يلزم إذن الوصول إلى الفيديو لاختيار مقطع.');
+      _showSnack(
+        audio
+            ? 'يلزم إذن الوصول إلى الصوت لاختيار ملف.'
+            : 'يلزم إذن الوصول إلى الفيديو لاختيار مقطع.',
+      );
       return;
     }
 
     final result = await FilePicker.platform.pickFiles(
-      type: FileType.video,
+      type: audio ? FileType.audio : FileType.video,
       allowMultiple: false,
     );
     if (!mounted) return;
@@ -34,10 +40,57 @@ class _HomeScreenState extends State<HomeScreen> {
     final file = result.files.single;
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) =>
-            PlayerScreen(videoPath: file.path!, videoName: file.name),
+        builder: (_) => PlayerScreen(
+          videoPath: file.path!,
+          videoName: file.name,
+          isAudio: audio,
+        ),
       ),
     );
+  }
+
+  /// Lets the user choose whether to open a video or an audio file.
+  Future<void> _showPickSheet() async {
+    final choice = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(
+                Icons.movie_creation_rounded,
+                color: AppColors.accent,
+              ),
+              title: const Text(
+                'اختيار فيديو',
+                style: TextStyle(color: AppColors.textPrimary),
+              ),
+              onTap: () => Navigator.pop(ctx, false),
+            ),
+            ListTile(
+              leading: const Icon(
+                Icons.audiotrack_rounded,
+                color: AppColors.accent2,
+              ),
+              title: const Text(
+                'اختيار ملف صوتي',
+                style: TextStyle(color: AppColors.textPrimary),
+              ),
+              onTap: () => Navigator.pop(ctx, true),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (choice == null) return;
+    await _pickMedia(audio: choice);
   }
 
   void _showSnack(String msg) {
@@ -46,18 +99,24 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final pages = [_PickerTab(onPick: _pickVideo), const MyClipsScreen()];
+    final pages = [
+      _PickerTab(
+        onPickVideo: () => _pickMedia(audio: false),
+        onPickAudio: () => _pickMedia(audio: true),
+      ),
+      const MyClipsScreen(),
+    ];
 
     return Scaffold(
       body: SafeArea(child: pages[_index]),
       floatingActionButton: _index == 0
           ? FloatingActionButton.extended(
-              onPressed: _pickVideo,
+              onPressed: _showPickSheet,
               backgroundColor: AppColors.accent,
               foregroundColor: Colors.black,
-              icon: const Icon(Icons.video_library_rounded),
+              icon: const Icon(Icons.add_rounded),
               label: const Text(
-                'اختيار فيديو',
+                'فتح ملف',
                 style: TextStyle(fontWeight: FontWeight.w700),
               ),
             )
@@ -83,8 +142,9 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 class _PickerTab extends StatelessWidget {
-  final VoidCallback onPick;
-  const _PickerTab({required this.onPick});
+  final VoidCallback onPickVideo;
+  final VoidCallback onPickAudio;
+  const _PickerTab({required this.onPickVideo, required this.onPickAudio});
 
   @override
   Widget build(BuildContext context) {
@@ -135,8 +195,9 @@ class _PickerTab extends StatelessWidget {
                   ),
                   const SizedBox(height: 10),
                   const Text(
-                    'اختر فيديو من جهازك، شغّله، حدّد البداية والنهاية، واحفظ '
-                    'المقطع — كل شيء يعمل بدون إنترنت ودون رفع أي ملف.',
+                    'اختر فيديو أو ملفاً صوتياً من جهازك، شغّله، حدّد البداية '
+                    'والنهاية، واحفظ المقطع — كل شيء يعمل بدون إنترنت ودون رفع '
+                    'أي ملف.',
                     style: TextStyle(
                       color: AppColors.textSecondary,
                       fontSize: 14,
@@ -148,9 +209,22 @@ class _PickerTab extends StatelessWidget {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
-                      onPressed: onPick,
-                      icon: const Icon(Icons.folder_open_rounded),
+                      onPressed: onPickVideo,
+                      icon: const Icon(Icons.movie_creation_rounded),
                       label: const Text('اختر فيديو من جهازك'),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: onPickAudio,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.accent2,
+                        side: const BorderSide(color: AppColors.accent2),
+                      ),
+                      icon: const Icon(Icons.audiotrack_rounded),
+                      label: const Text('اختر ملفاً صوتياً'),
                     ),
                   ),
                   const SizedBox(height: 16),

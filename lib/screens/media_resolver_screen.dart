@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/incoming_media.dart';
 import '../utils/app_theme.dart';
+import '../utils/media_type.dart';
 import 'player_screen.dart';
 
 /// Shown when a video is opened from outside the app. It copies the incoming
@@ -34,6 +35,7 @@ class _MediaResolverScreenState extends State<MediaResolverScreen> {
           builder: (_) => PlayerScreen(
             videoPath: video.path,
             videoName: video.name,
+            isAudio: isAudioFile(video.name),
           ),
         ),
       );
