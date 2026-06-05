@@ -1,5 +1,7 @@
 import 'package:hive/hive.dart';
 
+import '../utils/media_type.dart';
+
 part 'clip.g.dart';
 
 @HiveType(typeId: 0)
@@ -50,4 +52,8 @@ class Clip extends HiveObject {
   });
 
   int get durationMs => endMs - startMs;
+
+  /// Whether this saved clip is an audio file (inferred from its extension).
+  /// Old clips are video (.mp4), so they report false — no migration needed.
+  bool get isAudio => isAudioFile(filePath);
 }

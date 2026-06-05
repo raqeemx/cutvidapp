@@ -29,19 +29,21 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-            <!-- Appear in "Open with" for video files (file managers, gallery). -->
+            <!-- Appear in "Open with" for video & audio files. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <data android:scheme="content"/>
                 <data android:scheme="file"/>
                 <data android:mimeType="video/*"/>
+                <data android:mimeType="audio/*"/>
             </intent-filter>
-            <!-- Accept videos shared from other apps (e.g. WhatsApp, gallery). -->
+            <!-- Accept video/audio shared from other apps (e.g. WhatsApp). -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <data android:mimeType="video/*"/>
+                <data android:mimeType="audio/*"/>
             </intent-filter>
         </activity>
         <meta-data

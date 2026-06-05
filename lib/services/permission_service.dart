@@ -17,6 +17,20 @@ class PermissionService {
     return storage.isGranted || storage.isLimited;
   }
 
+  /// Requests permission to read audio media from the device.
+  /// Returns true if access is granted.
+  static Future<bool> requestAudioAccess() async {
+    if (!Platform.isAndroid) return true;
+
+    // Android 13+ uses granular media permissions.
+    final audio = await Permission.audio.request();
+    if (audio.isGranted || audio.isLimited) return true;
+
+    // Fallback for Android 12 and below.
+    final storage = await Permission.storage.request();
+    return storage.isGranted || storage.isLimited;
+  }
+
   /// Requests permission to save clips to the device gallery.
   static Future<bool> requestSaveAccess() async {
     if (!Platform.isAndroid) return true;
