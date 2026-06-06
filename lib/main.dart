@@ -80,7 +80,7 @@ class _ClipMasterAppState extends State<ClipMasterApp> {
       value: widget.repository,
       child: MaterialApp(
         navigatorKey: _navKey,
-        title: 'قص الفيديو',
+        title: 'TrimXClip',
         debugShowCheckedModeBanner: false,
         theme: buildAppTheme(),
         locale: const Locale('ar'),
