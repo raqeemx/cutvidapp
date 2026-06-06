@@ -16,6 +16,7 @@ import '../services/video_cutter.dart';
 import '../utils/app_theme.dart';
 import '../utils/time_format.dart';
 import '../widgets/range_timeline.dart';
+import '../widgets/speed_control.dart';
 import '../widgets/video_gesture_layer.dart';
 
 enum _ScreenMenu { resetSelection, showHint }
@@ -69,6 +70,9 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   // Stable key for remembering this video's playback position.
   String? _posKey;
+
+  // Live playback speed (review aid only; never affects the saved clip).
+  double _speed = 1.0;
 
   @override
   void initState() {
@@ -195,6 +199,11 @@ class _PlayerScreenState extends State<PlayerScreen>
         c.play();
       }
     });
+  }
+
+  void _setSpeed(double s) {
+    setState(() => _speed = s);
+    _controller?.setPlaybackSpeed(s);
   }
 
   // ---- Live drag handlers from the timeline ----
@@ -886,7 +895,8 @@ class _PlayerScreenState extends State<PlayerScreen>
                 fontSize: 11.5,
               ),
             ),
-            const SizedBox(width: 4),
+            const SizedBox(width: 8),
+            SpeedControl(speed: _speed, onChanged: _setSpeed),
           ],
         );
       },
