@@ -69,14 +69,18 @@ class CropService {
     final outPath = await VideoCutter.uniqueClipPath(name, isAudio: false);
     final totalMs = await MergeService.probeDurationMs(inputPath) ?? 0;
 
+    // H.264 (libx264) + yuv420p + faststart → broadly compatible MP4.
     final args = [
       '-y',
       '-i', inputPath,
       '-vf', vf,
-      '-c:v', 'mpeg4',
-      '-q:v', '3',
+      '-c:v', 'libx264',
+      '-preset', 'veryfast',
+      '-crf', '23',
+      '-pix_fmt', 'yuv420p',
       '-c:a', 'aac',
       '-b:a', '128k',
+      '-movflags', '+faststart',
       outPath,
     ];
 

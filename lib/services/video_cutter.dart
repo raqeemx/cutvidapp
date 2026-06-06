@@ -98,12 +98,14 @@ class VideoCutter {
     final duration = _ffmpegTime(endMs - startMs);
 
     // -ss after -i for accurate seeking. Audio: drop the video stream (-vn);
-    // video: re-encode for frame accuracy.
+    // video: re-encode to H.264 (libx264) + yuv420p + faststart for maximum
+    // compatibility (plays in WhatsApp, gallery apps, other phones…).
     final cmd = isAudio
         ? "-y -i '$sourcePath' -ss $start -t $duration "
               "-vn -c:a aac -b:a 192k '$outPath'"
         : "-y -i '$sourcePath' -ss $start -t $duration "
-              "-c:v mpeg4 -q:v 3 -c:a aac -b:a 128k '$outPath'";
+              "-c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p "
+              "-c:a aac -b:a 128k -movflags +faststart '$outPath'";
 
     final completer = Completer<String?>();
 

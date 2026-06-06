@@ -2,7 +2,7 @@ name: clip_master
 description: "Offline video player and clip cutter - play device videos, mark favorite parts, cut and save them as independent clips."
 publish_to: 'none'
 
-version: 2.3.0+5
+version: 2.3.1+6
 
 environment:
   sdk: ^3.9.2
