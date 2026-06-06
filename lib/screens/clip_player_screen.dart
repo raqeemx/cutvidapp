@@ -7,6 +7,7 @@ import '../models/clip.dart';
 import '../services/playback_store.dart';
 import '../utils/app_theme.dart';
 import '../utils/time_format.dart';
+import '../widgets/speed_control.dart';
 import '../widgets/video_gesture_layer.dart';
 
 class ClipPlayerScreen extends StatefulWidget {
@@ -24,6 +25,9 @@ class _ClipPlayerScreenState extends State<ClipPlayerScreen>
   String? _error;
 
   String get _posKey => 'clip_${widget.clip.id}';
+
+  // Live playback speed (review aid only).
+  double _speed = 1.0;
 
   @override
   void initState() {
@@ -100,6 +104,11 @@ class _ClipPlayerScreenState extends State<ClipPlayerScreen>
     setState(() {
       c.value.isPlaying ? c.pause() : c.play();
     });
+  }
+
+  void _setSpeed(double s) {
+    setState(() => _speed = s);
+    _controller?.setPlaybackSpeed(s);
   }
 
   /// Double-tap seek (±N seconds), clamped within the looping clip's duration.
@@ -228,6 +237,8 @@ class _ClipPlayerScreenState extends State<ClipPlayerScreen>
                   fontSize: 12,
                 ),
               ),
+              const SizedBox(width: 8),
+              SpeedControl(speed: _speed, onChanged: _setSpeed),
             ],
           ),
         ),
