@@ -309,7 +309,7 @@ class _AppHeader extends StatelessWidget {
           const Icon(Icons.content_cut_rounded, color: AppColors.accent),
           const SizedBox(width: 10),
           const Text(
-            'قص الفيديو',
+            'TrimXClip',
             style: TextStyle(
               color: AppColors.textPrimary,
               fontSize: 22,

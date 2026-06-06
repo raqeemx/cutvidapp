@@ -301,7 +301,7 @@ class _ClipCard extends StatelessWidget {
       );
       final isAudio = clip.isAudio;
       final ext = fileExtension(clip.filePath);
-      final relPath = isAudio ? 'Music/ClipMaster' : 'Movies/ClipMaster';
+      final relPath = isAudio ? 'Music/TrimXClip' : 'Movies/TrimXClip';
       final result = await SaverGallery.saveFile(
         filePath: clip.filePath,
         fileName: '${safeName.isEmpty ? 'clip' : safeName}'
