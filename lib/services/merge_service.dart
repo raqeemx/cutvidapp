@@ -115,6 +115,7 @@ class MergeService {
         '-safe', '0',
         '-i', listPath,
         '-c', 'copy',
+        '-movflags', '+faststart',
         outPath,
       ];
       return _execute(args, outPath, totalMs, onProgress);
@@ -171,10 +172,13 @@ class MergeService {
         '-filter_complex', filter.toString(),
         '-map', '[outv]',
         '-map', '[outa]',
-        '-c:v', 'mpeg4',
-        '-q:v', '3',
+        '-c:v', 'libx264',
+        '-preset', 'veryfast',
+        '-crf', '23',
+        '-pix_fmt', 'yuv420p',
         '-c:a', 'aac',
         '-b:a', '192k',
+        '-movflags', '+faststart',
         outPath,
       ]);
     }
