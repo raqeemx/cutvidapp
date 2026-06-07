@@ -6,6 +6,9 @@
     <!-- Legacy storage (Android 12 and below) -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"/>
+    <!-- Internet for the "Discover" section (WebView + remote link). Core
+         editing/playback remain fully offline. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
 
     <application
         android:label="TrimXClip"
@@ -58,6 +61,11 @@
         <intent>
             <action android:name="android.intent.action.VIEW"/>
             <data android:mimeType="video/*"/>
+        </intent>
+        <!-- Open links in an external browser (url_launcher, Android 11+). -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
         </intent>
     </queries>
 </manifest>

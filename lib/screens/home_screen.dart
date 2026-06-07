@@ -7,6 +7,7 @@ import 'player_screen.dart';
 import 'my_clips_screen.dart';
 import 'merge_screen.dart';
 import 'crop_screen.dart';
+import 'web_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -154,31 +155,12 @@ class _HomeScreenState extends State<HomeScreen> {
         onPickAudio: () => _pickMedia(audio: true),
       ),
       const MyClipsScreen(),
+      const WebScreen(),
     ];
 
     return Scaffold(
       body: SafeArea(child: pages[_index]),
-      floatingActionButton: _index == 0
-          ? FloatingActionButton.extended(
-              onPressed: _showPickSheet,
-              backgroundColor: AppColors.accent,
-              foregroundColor: Colors.black,
-              icon: const Icon(Icons.add_rounded),
-              label: const Text(
-                'فتح ملف',
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
-            )
-          : FloatingActionButton.extended(
-              onPressed: _showToolsSheet,
-              backgroundColor: AppColors.accent2,
-              foregroundColor: Colors.black,
-              icon: const Icon(Icons.auto_awesome_rounded),
-              label: const Text(
-                'أدوات',
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
-            ),
+      floatingActionButton: _buildFab(),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _index,
         onTap: (i) => setState(() => _index = i),
@@ -193,9 +175,42 @@ class _HomeScreenState extends State<HomeScreen> {
             activeIcon: Icon(Icons.collections_bookmark_rounded),
             label: 'مقاطعي',
           ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.explore_outlined),
+            activeIcon: Icon(Icons.explore_rounded),
+            label: 'اكتشف',
+          ),
         ],
       ),
     );
+  }
+
+  Widget? _buildFab() {
+    if (_index == 0) {
+      return FloatingActionButton.extended(
+        onPressed: _showPickSheet,
+        backgroundColor: AppColors.accent,
+        foregroundColor: Colors.black,
+        icon: const Icon(Icons.add_rounded),
+        label: const Text(
+          'فتح ملف',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+      );
+    }
+    if (_index == 1) {
+      return FloatingActionButton.extended(
+        onPressed: _showToolsSheet,
+        backgroundColor: AppColors.accent2,
+        foregroundColor: Colors.black,
+        icon: const Icon(Icons.auto_awesome_rounded),
+        label: const Text(
+          'أدوات',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+      );
+    }
+    return null; // Discover tab has no FAB.
   }
 }
 
@@ -340,7 +355,7 @@ class _OfflineBadge extends StatelessWidget {
           Icon(Icons.wifi_off_rounded, size: 16, color: AppColors.accent2),
           SizedBox(width: 8),
           Text(
-            'يعمل دون اتصال تماماً · بلا رفع للملفات',
+            'القص والتشغيل بدون إنترنت · بلا رفع للملفات',
             style: TextStyle(
               color: AppColors.accent2,
               fontSize: 12.5,
