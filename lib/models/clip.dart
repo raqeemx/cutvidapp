@@ -39,6 +39,11 @@ class Clip extends HiveObject {
   @HiveField(8)
   int createdAtMs;
 
+  /// Whether this clip has been exported to the device gallery/media store.
+  /// Defaults to false; older records (without this field) read as false.
+  @HiveField(9)
+  bool savedToGallery;
+
   Clip({
     required this.id,
     required this.name,
@@ -49,6 +54,7 @@ class Clip extends HiveObject {
     required this.endMs,
     required this.thumbnailPath,
     required this.createdAtMs,
+    this.savedToGallery = false,
   });
 
   int get durationMs => endMs - startMs;

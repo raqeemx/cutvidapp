@@ -355,26 +355,36 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   Future<void> _editTimeManually({required bool isStart}) async {
     final current = isStart ? _startMs : _endMs;
+    // Valid window keeps end after start by at least 300ms and within duration.
+    final minMs = isStart ? 0 : (_startMs + 300);
+    final maxMs = isStart ? (_endMs - 300) : _durationMs;
+    if (maxMs < minMs) {
+      _snack('لا يوجد مجال كافٍ للتعديل اليدوي.');
+      return;
+    }
     final result = await showDialog<int>(
       context: context,
       builder: (ctx) => _TimeEditorDialog(
-        initialMs: current,
-        maxMs: _durationMs,
+        initialMs: current.clamp(minMs, maxMs),
+        minMs: minMs,
+        maxMs: maxMs,
+        durationMs: _durationMs,
         title: isStart ? 'تعديل وقت البداية' : 'تعديل وقت النهاية',
       ),
     );
     if (result == null) return;
     setState(() {
+      _previewMode = false;
       if (isStart) {
-        _startMs = result.clamp(0, _endMs - 300 < 0 ? 0 : _endMs - 300);
+        _startMs = result;
       } else {
-        if (result <= _startMs) {
-          _snack('نقطة النهاية يجب أن تكون بعد البداية.');
-          return;
-        }
-        _endMs = result.clamp(_startMs + 300, _durationMs);
+        _endMs = result;
       }
     });
+    // Move the playhead to the edited point for immediate visual feedback.
+    _controller?.seekTo(
+      Duration(milliseconds: isStart ? _startMs : _endMs),
+    );
   }
 
   void _resetSelection() {
@@ -1259,11 +1269,15 @@ class _ErrorView extends StatelessWidget {
 
 class _TimeEditorDialog extends StatefulWidget {
   final int initialMs;
+  final int minMs;
   final int maxMs;
+  final int durationMs;
   final String title;
   const _TimeEditorDialog({
     required this.initialMs,
+    required this.minMs,
     required this.maxMs,
+    required this.durationMs,
     required this.title,
   });
 
@@ -1273,45 +1287,132 @@ class _TimeEditorDialog extends StatefulWidget {
 
 class _TimeEditorDialogState extends State<_TimeEditorDialog> {
   late int _ms;
+  bool _syncing = false;
+
+  late final bool _showHours = widget.durationMs >= 3600000;
+  final _hCtrl = TextEditingController();
+  final _mCtrl = TextEditingController();
+  final _sCtrl = TextEditingController();
+  final _csCtrl = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _ms = widget.initialMs;
+    _syncFields();
   }
 
-  void _adjust(int deltaMs) {
+  @override
+  void dispose() {
+    _hCtrl.dispose();
+    _mCtrl.dispose();
+    _sCtrl.dispose();
+    _csCtrl.dispose();
+    super.dispose();
+  }
+
+  /// Updates the text fields from [_ms] (without re-parsing them).
+  void _syncFields() {
+    _syncing = true;
+    final totalSec = _ms ~/ 1000;
+    final h = totalSec ~/ 3600;
+    final m = (totalSec % 3600) ~/ 60;
+    final s = totalSec % 60;
+    final cs = (_ms % 1000) ~/ 10;
+    two(int n) => n.toString().padLeft(2, '0');
+    _hCtrl.text = two(h);
+    _mCtrl.text = two(m);
+    _sCtrl.text = two(s);
+    _csCtrl.text = two(cs);
+    _syncing = false;
+  }
+
+  /// Recomputes [_ms] from the typed fields (no clamping — validated below).
+  void _parseFields() {
+    if (_syncing) return;
+    final h = _showHours ? (int.tryParse(_hCtrl.text) ?? 0) : 0;
+    final m = int.tryParse(_mCtrl.text) ?? 0;
+    final s = int.tryParse(_sCtrl.text) ?? 0;
+    final cs = int.tryParse(_csCtrl.text) ?? 0;
     setState(() {
-      _ms = (_ms + deltaMs).clamp(0, widget.maxMs);
+      _ms = ((h * 3600 + m * 60 + s) * 1000) + (cs * 10);
     });
+  }
+
+  void _setMs(int value) {
+    setState(() => _ms = value.clamp(widget.minMs, widget.maxMs));
+    _syncFields();
+  }
+
+  void _adjust(int deltaMs) => _setMs(_ms + deltaMs);
+
+  bool get _valid => _ms >= widget.minMs && _ms <= widget.maxMs;
+
+  String? get _errorText {
+    if (_valid) return null;
+    return 'أدخل وقتاً بين ${formatMsPrecise(widget.minMs)} '
+        'و ${formatMsPrecise(widget.maxMs)}';
   }
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
       title: Text(widget.title),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            formatMsPrecise(_ms),
-            style: const TextStyle(
-              color: AppColors.accent,
-              fontSize: 32,
-              fontWeight: FontWeight.w800,
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              formatMsPrecise(_ms),
+              style: TextStyle(
+                color: _valid ? AppColors.accent : AppColors.danger,
+                fontSize: 30,
+                fontWeight: FontWeight.w800,
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-          _adjustRow('ثوانٍ', -1000, 1000, '1s'),
-          const SizedBox(height: 8),
-          _adjustRow('دقيق', -100, 100, '0.1s'),
-          const SizedBox(height: 12),
-          Slider(
-            value: _ms.toDouble().clamp(0, widget.maxMs.toDouble()),
-            max: widget.maxMs.toDouble().clamp(1, double.infinity),
-            onChanged: (v) => setState(() => _ms = v.toInt()),
-          ),
-        ],
+            const SizedBox(height: 14),
+            // Manual entry fields.
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                if (_showHours) ...[
+                  _field(_hCtrl, 'س'),
+                  _sep(':'),
+                ],
+                _field(_mCtrl, 'د'),
+                _sep(':'),
+                _field(_sCtrl, 'ث'),
+                _sep('.'),
+                _field(_csCtrl, 'جزء'),
+              ],
+            ),
+            if (_errorText != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                _errorText!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: AppColors.danger, fontSize: 12),
+              ),
+            ],
+            const SizedBox(height: 14),
+            _adjustRow('ثانية', -1000, 1000, '1s'),
+            const SizedBox(height: 8),
+            _adjustRow('دقيق', -100, 100, '0.1s'),
+            const SizedBox(height: 8),
+            Slider(
+              value: _ms.toDouble().clamp(
+                    widget.minMs.toDouble(),
+                    widget.maxMs.toDouble(),
+                  ),
+              min: widget.minMs.toDouble(),
+              max: widget.maxMs.toDouble() <= widget.minMs.toDouble()
+                  ? widget.minMs.toDouble() + 1
+                  : widget.maxMs.toDouble(),
+              onChanged: (v) => _setMs(v.toInt()),
+            ),
+          ],
+        ),
       ),
       actions: [
         TextButton(
@@ -1319,12 +1420,55 @@ class _TimeEditorDialogState extends State<_TimeEditorDialog> {
           child: const Text('إلغاء'),
         ),
         ElevatedButton(
-          onPressed: () => Navigator.pop(context, _ms),
+          onPressed: _valid ? () => Navigator.pop(context, _ms) : null,
           child: const Text('تطبيق'),
         ),
       ],
     );
   }
+
+  Widget _field(TextEditingController ctrl, String label) {
+    return Column(
+      children: [
+        SizedBox(
+          width: 52,
+          child: TextField(
+            controller: ctrl,
+            onChanged: (_) => _parseFields(),
+            textAlign: TextAlign.center,
+            keyboardType: TextInputType.number,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(2),
+            ],
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+            ),
+            decoration: const InputDecoration(
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(vertical: 8),
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(label,
+            style: const TextStyle(
+                color: AppColors.textSecondary, fontSize: 11)),
+      ],
+    );
+  }
+
+  Widget _sep(String s) => Padding(
+        padding: const EdgeInsets.fromLTRB(4, 0, 4, 20),
+        child: Text(s,
+            style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 20,
+                fontWeight: FontWeight.w800)),
+      );
 
   Widget _adjustRow(String label, int minus, int plus, String step) {
     return Row(

@@ -1,16 +1,80 @@
-# clip_master
+# TrimXClip ✂️
 
-A new Flutter project.
+تطبيق **Flutter** لقص الفيديو والصوت **محليًا على الجهاز** — بدون رفع أي ملف وبدون
+الحاجة إلى إنترنت. اختر مقطعًا، شغّله، حدّد البداية والنهاية، واحفظ الناتج داخل
+مكتبة التطبيق أو صدّره إلى معرض جهازك.
 
-## Getting Started
+> A Flutter app to trim video & audio **entirely on-device** — no uploads, no
+> internet required for editing.
 
-This project is a starting point for a Flutter application.
+---
 
-A few resources to get you started if this is your first Flutter project:
+## ✨ المميزات الرئيسية
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+- 🎬 **اختيار فيديو أو ملف صوتي** من الجهاز، أو فتحه من خارج التطبيق عبر
+  «فتح باستخدام / مشاركة».
+- ▶️ **مشغّل متكامل**: تشغيل/إيقاف، نقر مزدوج للتقديم/التأخير ٥ ثوانٍ، تحكّم في
+  سرعة التشغيل (0.5×–2×)، وملء الشاشة.
+- ✂️ **تحديد البداية والنهاية** بثلاث طرق: سحب المقابض على الخط الزمني،
+  «التقاط» اللحظة الحالية أثناء التشغيل، أو **إدخال الوقت يدويًا** (ساعات/دقائق/
+  ثوانٍ/أجزاء الثانية) مع تحقق واضح.
+- ⚙️ **قص محلي بالكامل باستخدام FFmpeg** (`ffmpeg-kit full-gpl`)، بإخراج
+  **H.264/AAC** متوافق مع كل المشغّلات والأجهزة.
+- 🗂️ **طابور قص خلفي (Export Queue)**: أضِف عدة مقاطع وتُقَصّ تباعًا دون تعطيل
+  الواجهة، مع مؤشر تقدّم وحالة لكل مقطع.
+- 📁 **مكتبة «مقاطعي»**: بحث، فرز (الأحدث/الأطول/الاسم)، تشغيل، إعادة تسمية،
+  **تحديد متعدد** للحذف أو الحفظ الجماعي، وحذف فردي قابل للتراجع.
+- 📤 **مشاركة المقاطع وحفظها في معرض الجهاز**، مع **تمييز المقاطع المحفوظة**
+  بشارة واضحة.
+- 🧰 **أدوات إضافية**: **دمج** عدة مقاطع، و**اقتصاص/تدوير** أبعاد الفيديو مع
+  قوالب جاهزة (1:1، 4:5، 9:16، 16:9، وقوالب المنصات).
+- 🌍 **قسم «اكتشف»**: صفحة ويب يتحكّم بها عن بُعد (اختياري).
+- 🇸🇦 **دعم كامل للغة العربية وواجهة RTL** بخط Cairo.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+---
+
+## 🧱 البنية التقنية
+
+| الطبقة | الملفات |
+|--------|---------|
+| نقطة الدخول | `lib/main.dart` |
+| الشاشات | `lib/screens/` (المشغّل، مقاطعي، الدمج، الاقتصاص، الويب…) |
+| الخدمات | `lib/services/` (القص، الطابور، الدمج، الاقتصاص، المستودع، التصدير…) |
+| النماذج | `lib/models/clip.dart` (تخزين عبر **Hive**) |
+| عناصر واجهة | `lib/widgets/` (الخط الزمني، طبقة الإيماءات، شريط الطابور…) |
+
+**حِزم رئيسية:** `video_player`، `ffmpeg_kit_flutter_new`، `hive`، `provider`،
+`file_picker`، `share_plus`، `saver_gallery`، `wakelock_plus`،
+`webview_flutter`، `url_launcher`، `flutter_localizations`.
+
+---
+
+## 🚀 التشغيل
+
+```bash
+flutter pub get
+flutter run
+```
+
+بناء نسخة الإصدار لأندرويد:
+
+```bash
+flutter build apk --release
+```
+
+> **متطلّبات:** Flutter (Dart SDK ‎≥ 3.9)، وأندرويد بحدّ أدنى يدعم FFmpegKit.
+
+---
+
+## 🔐 الخصوصية
+
+كل عمليات القص والدمج والاقتصاص تتم **محليًا على الجهاز**. لا تُرفع الملفات إلى أي
+خادم. صلاحية الإنترنت مستخدمة فقط في قسم «اكتشف» الاختياري، ولا تؤثّر على وظائف
+القص والتشغيل التي تعمل دون اتصال.
+
+---
+
+## 📄 الترخيص
+
+يستخدم التطبيق `ffmpeg-kit` بترخيص **GPL** (يتضمّن x264)، لذا يخضع التوزيع لشروط
+GPL الخاصة بمكوّنات FFmpeg.
