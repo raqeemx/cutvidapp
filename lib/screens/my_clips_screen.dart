@@ -11,6 +11,7 @@ import '../services/permission_service.dart';
 import '../utils/app_theme.dart';
 import '../utils/media_type.dart';
 import '../utils/time_format.dart';
+import '../widgets/export_status_bar.dart';
 import 'clip_player_screen.dart';
 
 enum ClipSort { newest, longest, name }
@@ -88,6 +89,7 @@ class _MyClipsScreenState extends State<MyClipsScreen> {
                 ],
               ),
             ),
+            const ExportStatusBar(),
             if (all.isNotEmpty) _buildSearchAndSort(),
             Expanded(
               child: all.isEmpty
