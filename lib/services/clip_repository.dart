@@ -75,6 +75,19 @@ class ClipRepository extends ChangeNotifier {
   }
 
   Future<void> deleteClip(String id) async {
+    await _deleteFilesAndEntry(id, notify: true);
+  }
+
+  /// Deletes several clips at once (files + thumbnails + entries), then a single
+  /// UI update. Missing files are ignored so a stale path never crashes.
+  Future<void> deleteClips(List<String> ids) async {
+    for (final id in ids) {
+      await _deleteFilesAndEntry(id, notify: false);
+    }
+    notifyListeners();
+  }
+
+  Future<void> _deleteFilesAndEntry(String id, {required bool notify}) async {
     final clip = _box.get(id);
     if (clip == null) return;
     // Best-effort delete of the underlying files.
@@ -89,6 +102,15 @@ class ClipRepository extends ChangeNotifier {
       }
     } catch (_) {}
     await _box.delete(id);
+    if (notify) notifyListeners();
+  }
+
+  /// Flags a clip as exported to the device gallery.
+  Future<void> markSavedToGallery(String id) async {
+    final clip = _box.get(id);
+    if (clip == null || clip.savedToGallery) return;
+    clip.savedToGallery = true;
+    await clip.save();
     notifyListeners();
   }
 

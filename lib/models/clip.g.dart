@@ -22,13 +22,15 @@ class ClipAdapter extends TypeAdapter<Clip> {
       endMs: fields[6] as int,
       thumbnailPath: fields[7] as String,
       createdAtMs: fields[8] as int,
+      // Field 9 added later; older records won't have it → default false.
+      savedToGallery: fields[9] as bool? ?? false,
     );
   }
 
   @override
   void write(BinaryWriter writer, Clip obj) {
     writer
-      ..writeByte(9)
+      ..writeByte(10)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -46,7 +48,9 @@ class ClipAdapter extends TypeAdapter<Clip> {
       ..writeByte(7)
       ..write(obj.thumbnailPath)
       ..writeByte(8)
-      ..write(obj.createdAtMs);
+      ..write(obj.createdAtMs)
+      ..writeByte(9)
+      ..write(obj.savedToGallery);
   }
 
   @override
