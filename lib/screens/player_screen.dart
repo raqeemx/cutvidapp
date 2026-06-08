@@ -3,18 +3,15 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:video_player/video_player.dart';
-import 'package:wakelock_plus/wakelock_plus.dart';
 
-import '../models/clip.dart';
-import '../services/clip_repository.dart';
+import '../services/export_queue_service.dart';
 import '../services/playback_store.dart';
-import '../services/video_cutter.dart';
 import '../utils/app_theme.dart';
 import '../utils/time_format.dart';
+import '../widgets/export_status_bar.dart';
 import '../widgets/range_timeline.dart';
 import '../widgets/speed_control.dart';
 import '../widgets/video_gesture_layer.dart';
@@ -54,11 +51,6 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   // Preview mode: when active, playback auto-stops at _endMs.
   bool _previewMode = false;
-
-  bool _saving = false;
-
-  // Live progress (0..1) of the FFmpeg cut, used by the progress dialog.
-  final ValueNotifier<double> _cutProgress = ValueNotifier<double>(0);
 
   // Momentary highlight on a card after capturing its point.
   bool _startFlash = false;
@@ -179,10 +171,8 @@ class _PlayerScreenState extends State<PlayerScreen>
   void dispose() {
     _savePosition();
     WidgetsBinding.instance.removeObserver(this);
-    WakelockPlus.disable();
     _controller?.removeListener(_onTick);
     _controller?.dispose();
-    _cutProgress.dispose();
     super.dispose();
   }
 
@@ -302,78 +292,34 @@ class _PlayerScreenState extends State<PlayerScreen>
     return null;
   }
 
-  Future<void> _saveClip() async {
+  /// Adds the current selection to the background export queue without
+  /// blocking the screen — the user can immediately mark another clip.
+  Future<void> _addToQueue() async {
     final err = _validateRange();
     if (err != null) {
       _snack(err);
       return;
     }
-    _controller?.pause();
 
-    final repo = context.read<ClipRepository>();
     final name = await _askClipName();
     if (name == null || name.trim().isEmpty) return;
     if (!mounted) return;
 
-    // Progress is shown inline in the bottom action bar (see _buildBottomBar).
-    setState(() => _saving = true);
-    _cutProgress.value = 0;
-
-    final id = const Uuid().v4();
-
-    // Keep the screen awake during the (possibly long) encode.
-    await WakelockPlus.enable();
-    String? outPath;
-    try {
-      outPath = await VideoCutter.cut(
+    final queue = context.read<ExportQueueService>();
+    queue.add(
+      ExportJob(
+        id: const Uuid().v4(),
+        name: name.trim(),
         sourcePath: widget.videoPath,
+        sourceName: widget.videoName,
         startMs: _startMs,
         endMs: _endMs,
-        clipId: id,
-        name: name.trim(),
         isAudio: widget.isAudio,
-        onProgress: (p) => _cutProgress.value = p,
-      );
-    } finally {
-      await WakelockPlus.disable();
-    }
-
-    if (!mounted) return;
-
-    if (outPath == null) {
-      setState(() => _saving = false);
-      _snack('تعذّر قص المقطع. جرّب مدى مختلفاً.');
-      return;
-    }
-
-    // Audio clips have no frames to thumbnail.
-    final thumb = widget.isAudio
-        ? ''
-        : await VideoCutter.generateThumbnail(
-            videoPath: outPath,
-            positionMs: 0,
-          );
-
-    final clip = Clip(
-      id: id,
-      name: name.trim(),
-      filePath: outPath,
-      sourcePath: widget.videoPath,
-      sourceName: widget.videoName,
-      startMs: _startMs,
-      endMs: _endMs,
-      thumbnailPath: thumb,
-      createdAtMs: DateTime.now().millisecondsSinceEpoch,
+      ),
     );
 
-    await repo.addClip(clip);
-
-    if (!mounted) return;
-    setState(() => _saving = false);
-
-    // Tactile confirmation that the save finished.
     HapticFeedback.mediumImpact();
-    _showSavedDialog(name.trim(), p.basename(outPath));
+    _snack('تمت إضافة المقطع إلى طابور القص');
   }
 
   Future<String?> _askClipName() async {
@@ -407,78 +353,6 @@ class _PlayerScreenState extends State<PlayerScreen>
     );
   }
 
-  void _showSavedDialog(String name, String fileName) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Row(
-          children: const [
-            Icon(Icons.check_circle_rounded, color: AppColors.accent2),
-            SizedBox(width: 10),
-            Text('تم الحفظ بنجاح ✓'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'تم حفظ المقطع في مكتبة التطبيق باسم:',
-              style: TextStyle(color: AppColors.textSecondary),
-            ),
-            const SizedBox(height: 8),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: AppColors.surfaceLight,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.movie_rounded,
-                      color: AppColors.accent, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      fileName,
-                      style: const TextStyle(
-                        color: AppColors.textPrimary,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'يمكنك تشغيله أو تصديره إلى معرض الجهاز من تبويب «مقاطعي».',
-              style: TextStyle(color: AppColors.textSecondary, height: 1.5),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              // Reselect the whole video for the next cut.
-              setState(() {
-                _startMs = 0;
-                _endMs = _durationMs;
-              });
-            },
-            child: const Text('قص مقطع آخر'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('حسناً'),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> _editTimeManually({required bool isStart}) async {
     final current = isStart ? _startMs : _endMs;
     final result = await showDialog<int>(
@@ -504,7 +378,6 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   void _resetSelection() {
-    if (_saving) return;
     setState(() {
       _previewMode = false;
       _startMs = 0;
@@ -604,6 +477,9 @@ class _PlayerScreenState extends State<PlayerScreen>
             ),
           ),
         ),
+
+        // Live background-cut status (hidden when the queue is idle).
+        const ExportStatusBar(),
 
         // ===== Section 5: fixed bottom action bar =====
         _buildBottomBar(),
@@ -1018,7 +894,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                   icon: Icons.flag_circle_rounded,
                   label: 'التقاط البداية',
                   color: AppColors.accent2,
-                  onTap: _saving ? null : _captureStart,
+                  onTap: _captureStart,
                 ),
               ),
               const SizedBox(width: 12),
@@ -1027,7 +903,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                   icon: Icons.stop_circle_rounded,
                   label: 'التقاط النهاية',
                   color: AppColors.accent,
-                  onTap: _saving ? null : _captureEnd,
+                  onTap: _captureEnd,
                 ),
               ),
             ],
@@ -1039,7 +915,7 @@ class _PlayerScreenState extends State<PlayerScreen>
               Expanded(
                 flex: 2,
                 child: OutlinedButton.icon(
-                  onPressed: _saving ? null : _previewClip,
+                  onPressed: _previewClip,
                   style: OutlinedButton.styleFrom(
                     foregroundColor: AppColors.textPrimary,
                     side: const BorderSide(color: AppColors.surfaceLight),
@@ -1053,61 +929,17 @@ class _PlayerScreenState extends State<PlayerScreen>
                 ),
               ),
               const SizedBox(width: 12),
-              // Primary: save (wide)
+              // Primary: add to background queue (non-blocking).
               Expanded(
                 flex: 3,
                 child: ElevatedButton.icon(
-                  onPressed: _saving ? null : _saveClip,
-                  icon: _saving
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.black,
-                          ),
-                        )
-                      : const Icon(Icons.save_alt_rounded),
-                  label: Text(_saving ? 'جارٍ القص…' : 'حفظ المقطع'),
+                  onPressed: _addToQueue,
+                  icon: const Icon(Icons.playlist_add_rounded),
+                  label: const Text('إضافة إلى طابور القص'),
                 ),
               ),
             ],
           ),
-          // Inline real progress while cutting.
-          if (_saving)
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: ValueListenableBuilder<double>(
-                valueListenable: _cutProgress,
-                builder: (context, value, _) {
-                  final pct = (value * 100).clamp(0, 100).toStringAsFixed(0);
-                  return Row(
-                    children: [
-                      Expanded(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: LinearProgressIndicator(
-                            value: value <= 0 ? null : value,
-                            minHeight: 8,
-                            backgroundColor: AppColors.surfaceLight,
-                            color: AppColors.accent,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        '%$pct',
-                        style: const TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ),
         ],
       ),
     );

@@ -6,6 +6,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
 
 import 'services/clip_repository.dart';
+import 'services/export_queue_service.dart';
 import 'services/incoming_media.dart';
 import 'services/playback_store.dart';
 import 'screens/home_screen.dart';
@@ -76,8 +77,13 @@ class _ClipMasterAppState extends State<ClipMasterApp> {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider<ClipRepository>.value(
-      value: widget.repository,
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider<ClipRepository>.value(value: widget.repository),
+        ChangeNotifierProvider<ExportQueueService>(
+          create: (_) => ExportQueueService(widget.repository),
+        ),
+      ],
       child: MaterialApp(
         navigatorKey: _navKey,
         title: 'TrimXClip',
