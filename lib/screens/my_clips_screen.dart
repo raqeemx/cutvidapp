@@ -24,7 +24,11 @@ extension on ClipSort {
 }
 
 class MyClipsScreen extends StatefulWidget {
-  const MyClipsScreen({super.key});
+  /// Reflects whether the screen is in multi-select mode, so the host can hide
+  /// its floating action button while selecting.
+  final ValueNotifier<bool>? selectionMode;
+
+  const MyClipsScreen({super.key, this.selectionMode});
 
   @override
   State<MyClipsScreen> createState() => _MyClipsScreenState();
@@ -38,12 +42,6 @@ class _MyClipsScreenState extends State<MyClipsScreen> {
   // Multi-select state.
   bool _selecting = false;
   final Set<String> _selected = {};
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
 
   List<Clip> _applyFilters(List<Clip> clips) {
     final q = _query.trim().toLowerCase();
@@ -69,6 +67,7 @@ class _MyClipsScreenState extends State<MyClipsScreen> {
       _selecting = true;
       if (id != null) _selected.add(id);
     });
+    widget.selectionMode?.value = true;
   }
 
   void _exitSelection() {
@@ -76,6 +75,15 @@ class _MyClipsScreenState extends State<MyClipsScreen> {
       _selecting = false;
       _selected.clear();
     });
+    widget.selectionMode?.value = false;
+  }
+
+  @override
+  void dispose() {
+    // Leaving the tab while selecting shouldn't keep the FAB hidden elsewhere.
+    widget.selectionMode?.value = false;
+    _searchController.dispose();
+    super.dispose();
   }
 
   void _toggle(String id) {
@@ -806,7 +814,7 @@ class _SavedBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
         color: AppColors.accent2.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(20),
@@ -815,13 +823,13 @@ class _SavedBadge extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(Icons.check_circle_rounded,
-              size: 13, color: AppColors.accent2),
-          SizedBox(width: 4),
+              size: 11, color: AppColors.accent2),
+          SizedBox(width: 3),
           Text(
-            'محفوظ في المعرض',
+            'في المعرض',
             style: TextStyle(
               color: AppColors.accent2,
-              fontSize: 11,
+              fontSize: 9.5,
               fontWeight: FontWeight.w700,
             ),
           ),
