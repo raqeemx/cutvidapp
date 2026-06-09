@@ -19,6 +19,15 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _index = 0;
 
+  // True while "My Clips" is in multi-select mode — hides the tools FAB.
+  final ValueNotifier<bool> _clipsSelecting = ValueNotifier<bool>(false);
+
+  @override
+  void dispose() {
+    _clipsSelecting.dispose();
+    super.dispose();
+  }
+
   Future<void> _pickMedia({required bool audio}) async {
     final granted = audio
         ? await PermissionService.requestAudioAccess()
@@ -154,7 +163,7 @@ class _HomeScreenState extends State<HomeScreen> {
         onPickVideo: () => _pickMedia(audio: false),
         onPickAudio: () => _pickMedia(audio: true),
       ),
-      const MyClipsScreen(),
+      MyClipsScreen(selectionMode: _clipsSelecting),
       const WebScreen(),
     ];
 
@@ -199,15 +208,22 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
     if (_index == 1) {
-      return FloatingActionButton.extended(
-        onPressed: _showToolsSheet,
-        backgroundColor: AppColors.accent2,
-        foregroundColor: Colors.black,
-        icon: const Icon(Icons.auto_awesome_rounded),
-        label: const Text(
-          'أدوات',
-          style: TextStyle(fontWeight: FontWeight.w700),
-        ),
+      // Hide the tools FAB while the library is in multi-select mode.
+      return ValueListenableBuilder<bool>(
+        valueListenable: _clipsSelecting,
+        builder: (context, selecting, _) {
+          if (selecting) return const SizedBox.shrink();
+          return FloatingActionButton.extended(
+            onPressed: _showToolsSheet,
+            backgroundColor: AppColors.accent2,
+            foregroundColor: Colors.black,
+            icon: const Icon(Icons.auto_awesome_rounded),
+            label: const Text(
+              'أدوات',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+          );
+        },
       );
     }
     return null; // Discover tab has no FAB.
